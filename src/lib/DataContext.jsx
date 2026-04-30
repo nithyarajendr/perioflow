@@ -36,17 +36,15 @@ export function DataProvider({ children }) {
   const [requirements, setRequirements] = useState([])
   const [claims, setClaims] = useState([])
   const [settings, setSettings] = useState(SEED_SETTINGS)
-  const [apiKey, setApiKey] = useState('')
   const [feeSchedule, setFeeSchedule] = useState({})
 
   const reload = useCallback(async () => {
-    const [p, c, r, cl, s, k, f] = await Promise.all([
+    const [p, c, r, cl, s, f] = await Promise.all([
       loadJson(KEYS.payers, []),
       loadJson(KEYS.cdtCodes, []),
       loadJson(KEYS.requirements, []),
       loadJson(KEYS.claims, []),
       loadJson(KEYS.settings, SEED_SETTINGS),
-      storage.get(KEYS.apiKey),
       loadJson(KEYS.feeSchedule, {}),
     ])
     setPayers(p)
@@ -54,7 +52,6 @@ export function DataProvider({ children }) {
     setRequirements(r)
     setClaims(cl)
     setSettings(s)
-    setApiKey(k ? k.value : '')
     setFeeSchedule(f)
   }, [])
 
@@ -128,12 +125,6 @@ export function DataProvider({ children }) {
     await saveJson(KEYS.settings, newSettings)
   }, [])
 
-  const saveApiKey = useCallback(async (key) => {
-    setApiKey(key)
-    if (key) await storage.set(KEYS.apiKey, key)
-    else await storage.delete(KEYS.apiKey)
-  }, [])
-
   // ---- Fee schedule ----
   const saveFeeSchedule = useCallback(async (next) => {
     setFeeSchedule(next)
@@ -185,11 +176,11 @@ export function DataProvider({ children }) {
 
   const value = {
     loaded,
-    payers, cdtCodes, requirements, claims, settings, apiKey, feeSchedule,
+    payers, cdtCodes, requirements, claims, settings, feeSchedule,
     saveClaim, deleteClaim, generateClaimId,
     savePayer,
     saveRequirement,
-    saveSettings, saveApiKey,
+    saveSettings,
     saveFeeSchedule, getFeeForCode,
     exportAll, importAll, resetToDefaults,
     getPayer, getCdt, getRequirement,

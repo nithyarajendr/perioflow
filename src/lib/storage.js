@@ -50,6 +50,5 @@ export const KEYS = {
   requirements: 'perioflow:payer-requirements',
   claims: 'perioflow:claims',
   settings: 'perioflow:settings',
-  apiKey: 'perioflow:api-key',
   feeSchedule: 'perioflow:fee-schedule',
 }

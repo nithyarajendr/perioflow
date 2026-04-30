@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { Plus, Trash2, Pencil, Download, Upload, RotateCcw, Save, Eye, EyeOff, DollarSign } from 'lucide-react'
+import { Plus, Trash2, Pencil, Download, Upload, RotateCcw, Save, DollarSign } from 'lucide-react'
 import { useData } from '../lib/DataContext'
 import { useToast } from '../components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -9,10 +9,9 @@ export default function Settings() {
     <div className="space-y-8 max-w-5xl">
       <header>
         <h1 className="text-2xl font-semibold text-text-strong">Settings</h1>
-        <p className="text-text-muted mt-1">Practice info, fee schedule, payers, requirements, AI configuration, and data management.</p>
+        <p className="text-text-muted mt-1">Practice info, fee schedule, payers, requirements, and data management.</p>
       </header>
       <PracticeInfoSection />
-      <ApiKeySection />
       <FeeScheduleSection />
       <PayersSection />
       <RequirementsSection />
@@ -84,58 +83,6 @@ function PracticeInfoSection() {
           </button>
         </div>
       </form>
-    </Section>
-  )
-}
-
-// ---------- Section: API key ----------
-
-function ApiKeySection() {
-  const { apiKey, saveApiKey } = useData()
-  const { show } = useToast()
-  const [val, setVal] = useState(apiKey)
-  const [reveal, setReveal] = useState(false)
-
-  useEffect(() => { setVal(apiKey) }, [apiKey])
-
-  const onSave = async () => {
-    try {
-      await saveApiKey(val.trim())
-      show(val.trim() ? 'API key saved' : 'API key cleared', 'success')
-    } catch {
-      show('Failed to save API key', 'error')
-    }
-  }
-
-  return (
-    <Section title="AI Configuration" description="Your Anthropic API key is used to generate narratives. Stored locally on this device only.">
-      <div className="flex flex-col md:flex-row gap-3 md:items-end">
-        <Field label="Anthropic API Key" className="flex-1">
-          <div className="relative">
-            <input
-              type={reveal ? 'text' : 'password'}
-              className={inputCls + ' pr-10'}
-              placeholder="sk-ant-..."
-              value={val}
-              onChange={e => setVal(e.target.value)}
-            />
-            <button
-              type="button"
-              onClick={() => setReveal(r => !r)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-strong"
-              aria-label={reveal ? 'Hide key' : 'Show key'}
-            >
-              {reveal ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-        </Field>
-        <button onClick={onSave} className="px-4 py-2 bg-navy text-white rounded-md text-sm font-medium hover:opacity-90 inline-flex items-center gap-2">
-          <Save size={16} /> Save Key
-        </button>
-      </div>
-      <p className="text-xs text-text-muted mt-2">
-        Calls go directly from this browser to api.anthropic.com using <code className="px-1 bg-gray-100 rounded">claude-sonnet-4-20250514</code>.
-      </p>
     </Section>
   )
 }

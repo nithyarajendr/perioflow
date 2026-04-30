@@ -473,7 +473,6 @@ function Step3({ claim, setClaim }) {
 }
 
 function SmartPaste({ claim, setClaim }) {
-  const { apiKey } = useData()
   const { show } = useToast()
   const [text, setText] = useState('')
   const [parsing, setParsing] = useState(false)
@@ -483,7 +482,7 @@ function SmartPaste({ claim, setClaim }) {
     if (!text.trim()) return
     setParsing(true)
     try {
-      const data = await parseClinicalNotes({ apiKey, notesText: text })
+      const data = await parseClinicalNotes({ notesText: text })
       // Merge: AI fills empty user fields; AI's non-empty values override empty current values.
       const cf = claim.clinical_findings
       const filled = []
@@ -553,13 +552,10 @@ function SmartPaste({ claim, setClaim }) {
         className={inputCls + ' font-mono text-xs'}
       />
       <div className="flex items-center justify-between gap-2 mt-2">
-        {!apiKey
-          ? <span className="text-xs text-yellow-700">Add an API key in Settings → AI Configuration to enable Smart Paste.</span>
-          : <span className="text-xs text-text-muted">Uses the same Anthropic API key as narrative generation.</span>
-        }
+        <span className="text-xs text-text-muted">Uses your private server key. If this fails, check your server environment setup.</span>
         <button
           onClick={onParse}
-          disabled={parsing || !apiKey || !text.trim()}
+          disabled={parsing || !text.trim()}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal text-white rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-40 shrink-0"
         >
           {parsing ? <><Loader2 className="animate-spin" size={14} /> Parsing…</> : <><Sparkles size={14} /> Parse & Fill</>}
@@ -572,7 +568,7 @@ function SmartPaste({ claim, setClaim }) {
 // ---------- Step 4 ----------
 
 function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
-  const { requirements, cdtCodes, getPayer, apiKey } = useData()
+  const { requirements, cdtCodes, getPayer } = useData()
   const { show } = useToast()
   const payer = getPayer(claim.payer_id)
   const requirementGroups = useMemo(
@@ -597,7 +593,7 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
     try {
       const elements = requirementGroups.flatMap(g => g.narrative_elements)
       const prompt = buildNarrativePrompt({ claim, payerName: payer?.name, narrativeElements: elements, cdtCodes })
-      const text = await generateNarrative({ apiKey, prompt })
+      const text = await generateNarrative({ prompt })
       setClaim({ ...claim, generated_narrative: text, narrative_approved: false })
       show('Narrative generated — review and approve', 'success')
     } catch (err) {
@@ -665,13 +661,12 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
               <div className="space-y-2">
                 <button
                   onClick={onGenerate}
-                  disabled={!apiKey || requirementGroups.length === 0}
+                  disabled={requirementGroups.length === 0}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-teal text-white rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-40"
                 >
                   <Sparkles size={16} /> Generate Narrative with Claude
                 </button>
                 <button onClick={editNarrativeManually} className="ml-2 text-sm text-text-muted hover:text-navy">or write manually</button>
-                {!apiKey && <p className="text-xs text-yellow-700">Add an API key in Settings → AI Configuration to enable AI generation.</p>}
               </div>
             )}
             {generating && (
@@ -693,7 +688,7 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
                       Approve Narrative
                     </button>
                   )}
-                  <button onClick={onGenerate} disabled={!apiKey} className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40">
+                  <button onClick={onGenerate} className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50">
                     Regenerate
                   </button>
                 </div>
