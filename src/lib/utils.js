@@ -198,3 +198,26 @@ export function todayIso() {
   const d = new Date()
   return d.toISOString().slice(0, 10)
 }
+
+// True iff the claim has a requirements_snapshot whose payer + sorted CDT
+// codes match the claim's current payer + procedures. Stale snapshots (e.g.
+// after editing procedures) return false so the caller can re-fetch.
+export function isSnapshotValid(claim) {
+  const snap = claim?.requirements_snapshot
+  if (!snap) return false
+  if (snap.payer_id !== claim.payer_id) return false
+  const newCodes = [...(claim.procedures || []).map(p => p.cdt_code).filter(Boolean)].sort()
+  const oldCodes = [...(snap.cdt_codes || [])].sort()
+  if (newCodes.length !== oldCodes.length) return false
+  return newCodes.every((c, i) => c === oldCodes[i])
+}
+
+// Snapshot constructor — keeps the shape consistent across wizard + detail.
+export function buildRequirementsSnapshot(claim, groups) {
+  return {
+    generated_at: new Date().toISOString(),
+    payer_id: claim.payer_id,
+    cdt_codes: [...(claim.procedures || []).map(p => p.cdt_code).filter(Boolean)].sort(),
+    groups,
+  }
+}
