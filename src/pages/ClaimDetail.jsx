@@ -19,10 +19,12 @@ import {
   computeHealthScore,
   DENIAL_REASONS,
   QUADRANTS,
+  isSnapshotValid,
+  buildRequirementsSnapshot,
 } from '../lib/utils'
 import { useResolvedRequirements } from '../lib/useResolvedRequirements'
 import { useUnsavedChangesGuard } from '../lib/useUnsavedChangesGuard'
-import { emptyCostEstimate } from '../lib/cost'
+import { emptyCostEstimate, hasCostEstimateData } from '../lib/cost'
 
 export default function ClaimDetail() {
   const { id } = useParams()
@@ -69,38 +71,34 @@ export default function ClaimDetail() {
   }, [claim])
 
   // AI-resolved requirements: only fetch when we don't already have a frozen
-  // per-claim snapshot. Once snapshot exists, we render from it directly and
-  // skip the AI call entirely (this is the fix for "checkboxes wiped on every
-  // page load").
-  const hasSnapshot = !!draft?.requirements_snapshot
+  // per-claim snapshot whose payer + codes still match the claim. A snapshot
+  // becomes stale when the user edits procedures via the wizard; in that case
+  // we treat it as missing and refetch (which then re-snapshots).
+  const hasSnapshot = isSnapshotValid(draft || claim)
   const { groups: liveGroups, saveAi, retryAi } = useResolvedRequirements(hasSnapshot ? null : (draft || claim))
   const requirementGroups = useMemo(() => {
     if (hasSnapshot) {
-      return (draft.requirements_snapshot.groups || []).map(g => ({ ...g, frozen: true }))
+      const snap = (draft || claim)?.requirements_snapshot
+      return (snap?.groups || []).map(g => ({ ...g, frozen: true }))
     }
     return liveGroups
-  }, [hasSnapshot, draft, liveGroups])
+  }, [hasSnapshot, draft, claim, liveGroups])
 
   // Auto-snapshot the resolved requirements onto the claim the FIRST time they
-  // come back fully resolved. Saves against `claim` (not `draft`) so the
+  // come back fully resolved (or when the existing snapshot is stale because
+  // procedures changed). Saves against `claim` (not `draft`) so the
   // field-merge resync above pulls in the snapshot without disturbing live
   // edits. The ref guards against duplicate fires across renders.
   const snapshotInFlight = useRef(false)
   useEffect(() => {
     if (!claim) return
-    if (claim.requirements_snapshot) return
+    if (isSnapshotValid(claim)) return
     if (snapshotInFlight.current) return
     if (!liveGroups || liveGroups.length === 0) return
     const allResolved = liveGroups.every(g => g.source === 'payer' || g.source === 'ai-suggested')
     if (!allResolved) return
     snapshotInFlight.current = true
-    const snapshot = {
-      generated_at: new Date().toISOString(),
-      payer_id: claim.payer_id,
-      cdt_codes: [...(claim.procedures || []).map(p => p.cdt_code).filter(Boolean)].sort(),
-      groups: liveGroups,
-    }
-    saveClaim({ ...claim, requirements_snapshot: snapshot })
+    saveClaim({ ...claim, requirements_snapshot: buildRequirementsSnapshot(claim, liveGroups) })
       .catch(() => { snapshotInFlight.current = false })
   }, [claim, liveGroups, saveClaim])
 
@@ -259,8 +257,8 @@ export default function ClaimDetail() {
     { id: 'claim-health-score', label: 'Claim Health Score' },
     { id: 'documentation-checklist', label: 'Documentation Checklist' },
     { id: 'procedures', label: 'Procedures' },
+    { id: 'cost-estimate', label: 'Patient Cost Estimate' },
     { id: 'clinical-findings', label: 'Clinical Findings' },
-    { id: 'cost-estimate', label: 'Cost Estimate' },
     { id: 'narrative', label: 'Narrative' },
   ]
 
@@ -392,6 +390,19 @@ export default function ClaimDetail() {
       </Section>
       </div>
 
+      {/* === Patient Cost Estimate — promoted above Clinical Findings so it's
+           harder to miss. The card style is brighter than ordinary Sections to
+           pull the eye, and an empty state explicitly invites the user in. === */}
+      <div id="cost-estimate" className="scroll-mt-20">
+        <PatientCostEstimateCard
+          procedures={claim.procedures}
+          cdtCodes={cdtCodes}
+          value={draft.cost_estimate || emptyCostEstimate()}
+          onChange={updateCostEstimate}
+          onPrint={() => setCostPrintOpen(true)}
+        />
+      </div>
+
       {/* Clinical Findings — inline editable. Edits accumulate in draft; floating save bar commits. */}
       <div id="clinical-findings" className="scroll-mt-20">
       <Section title={<span className="flex items-center gap-2">Clinical Findings <EditHint /></span>}>
@@ -461,25 +472,6 @@ export default function ClaimDetail() {
             full
           />
         </Grid>
-      </Section>
-      </div>
-
-      {/* Patient Cost Estimate (between Clinical Findings and Narrative — TOC order) */}
-      <div id="cost-estimate" className="scroll-mt-20">
-      <Section title={
-        <span className="flex items-center gap-2">
-          <Calculator size={16} className="text-teal" />
-          Patient Cost Estimate
-          <EditHint />
-        </span>
-      }>
-        <CostEstimatorPanel
-          procedures={claim.procedures}
-          cdtCodes={cdtCodes}
-          value={draft.cost_estimate || emptyCostEstimate()}
-          onChange={updateCostEstimate}
-          onPrint={() => setCostPrintOpen(true)}
-        />
       </Section>
       </div>
 
@@ -802,6 +794,59 @@ async function runDenialFeedback({ newClaim, allClaims, requirements, saveRequir
 }
 
 // ---------- Layout helpers ----------
+
+// Patient Cost Estimate — a brighter card than ordinary Sections so it pulls
+// the eye on the report page. Shows an explicit empty-state CTA when the user
+// hasn't filled out the estimate yet; flips to the full editor on click.
+function PatientCostEstimateCard({ procedures, cdtCodes, value, onChange, onPrint }) {
+  const filled = hasCostEstimateData(value)
+  const [expanded, setExpanded] = useState(filled)
+
+  if (!expanded) {
+    return (
+      <div className="rounded-xl border-2 border-teal/40 bg-teal/5 p-6">
+        <div className="flex items-start gap-4 flex-wrap">
+          <div className="shrink-0 p-3 rounded-full bg-teal/15 text-teal">
+            <Calculator size={28} strokeWidth={1.6} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-serif text-2xl text-text-strong leading-tight">Patient Cost Estimate</h2>
+            <p className="text-sm text-text-muted mt-1.5 max-w-xl">
+              Estimate the patient's out-of-pocket and what insurance will cover, using their plan's deductible, max benefit, and coinsurance. Print as a treatment plan to hand to the patient.
+            </p>
+          </div>
+          <button
+            onClick={() => setExpanded(true)}
+            className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 bg-teal text-white text-sm font-medium rounded-full hover:opacity-90"
+          >
+            <Calculator size={16} /> Add Cost Estimate
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <section className="bg-white border-2 border-teal/30 rounded-xl p-6">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="shrink-0 p-2 rounded-full bg-teal/15 text-teal">
+          <Calculator size={20} strokeWidth={1.8} />
+        </div>
+        <div className="flex-1">
+          <h2 className="font-serif text-2xl text-text-strong leading-tight">Patient Cost Estimate</h2>
+          <p className="text-xs text-text-muted mt-0.5">Click any field to edit · Print to hand to the patient</p>
+        </div>
+      </div>
+      <CostEstimatorPanel
+        procedures={procedures}
+        cdtCodes={cdtCodes}
+        value={value}
+        onChange={onChange}
+        onPrint={onPrint}
+      />
+    </section>
+  )
+}
 
 function Section({ title, children }) {
   return (

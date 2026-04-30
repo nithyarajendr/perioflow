@@ -6,7 +6,14 @@ import { AlertTriangle, Loader2 } from 'lucide-react'
  * form with unsaved edits. Driven by a React Router blocker passed in by the
  * caller. The caller owns the save logic — pass `onSave` returning a Promise.
  */
-export default function UnsavedChangesDialog({ blocker, onSave, onSaveError }) {
+export default function UnsavedChangesDialog({
+  blocker,
+  onSave,
+  onSaveError,
+  saveLabel = 'Save & Leave',
+  discardLabel = 'Discard & Leave',
+  message = 'Save before leaving?',
+}) {
   const [saving, setSaving] = useState(false)
 
   if (!blocker || blocker.state !== 'blocked') return null
@@ -36,7 +43,7 @@ export default function UnsavedChangesDialog({ blocker, onSave, onSaveError }) {
           </div>
           <div className="flex-1">
             <h3 className="text-lg font-semibold text-text-strong">You have unsaved changes</h3>
-            <p className="text-sm text-text-muted mt-1">Save before leaving?</p>
+            <p className="text-sm text-text-muted mt-1">{message}</p>
           </div>
         </div>
         <div className="flex flex-wrap justify-end gap-2 mt-6">
@@ -52,7 +59,7 @@ export default function UnsavedChangesDialog({ blocker, onSave, onSaveError }) {
             disabled={saving}
             className="px-4 py-2 text-sm font-medium text-white rounded-md bg-danger hover:opacity-90 disabled:opacity-50"
           >
-            Discard & Leave
+            {discardLabel}
           </button>
           <button
             onClick={handleSaveAndLeave}
@@ -60,7 +67,7 @@ export default function UnsavedChangesDialog({ blocker, onSave, onSaveError }) {
             className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white rounded-md bg-navy hover:opacity-90 disabled:opacity-50"
           >
             {saving && <Loader2 size={14} className="animate-spin" />}
-            {saving ? 'Saving…' : 'Save & Leave'}
+            {saving ? 'Saving…' : saveLabel}
           </button>
         </div>
       </div>
