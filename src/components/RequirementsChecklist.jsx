@@ -1,4 +1,5 @@
 import { Check, CheckCircle2, AlertTriangle, AlertOctagon, Sparkles, Loader2, RefreshCw } from 'lucide-react'
+import { useData } from '../lib/DataContext'
 
 /**
  * Documentation Requirements — the most important surface in PerioFlow.
@@ -248,11 +249,14 @@ function ChecklistList({ groups, checked, onToggle, readOnly, onSaveAi, onRetryA
 }
 
 function GroupHeader({ group, onSaveAi, onRetryAi }) {
+  const { cdtCodes } = useData()
+  const description = cdtCodes.find(c => c.code === group.cdt_code)?.description
+
   if (group.source === 'ai-suggested' && !group.frozen) {
     // AI-suggested banner — clearly distinct, with a Save Requirements action.
     return (
       <div className="px-5 py-3 bg-teal/5 border-b border-teal/30 flex items-center gap-2 flex-wrap">
-        <span className="font-mono text-xs font-semibold tracking-wider text-text-strong">{group.cdt_code}</span>
+        <CodeWithDescription code={group.cdt_code} description={description} />
         <span className="inline-flex items-center gap-1 text-[11px] uppercase tracking-[0.12em] text-teal font-semibold">
           <Sparkles size={11} /> AI-suggested
         </span>
@@ -267,13 +271,22 @@ function GroupHeader({ group, onSaveAi, onRetryAi }) {
     )
   }
 
-  // Default header (payer / loading / error)
+  // Default header (payer / loading / error / frozen)
   return (
     <div className="px-5 py-2.5 bg-cream-light/60 border-b border-border-warm">
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-xs font-semibold tracking-wider text-text-strong">{group.cdt_code}</span>
-      </div>
+      <CodeWithDescription code={group.cdt_code} description={description} />
     </div>
+  )
+}
+
+function CodeWithDescription({ code, description }) {
+  return (
+    <span className="inline-flex items-baseline gap-2 flex-wrap">
+      <span className="font-mono text-xs font-semibold tracking-wider text-text-strong">{code}</span>
+      {description && (
+        <span className="text-xs text-text-muted">— {description}</span>
+      )}
+    </span>
   )
 }
 
