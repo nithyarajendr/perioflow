@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, Trash2, ChevronLeft, ChevronRight, AlertTriangle, Check, Loader2, Sparkles } from 'lucide-react'
+import { Plus, Trash2, ChevronLeft, ChevronRight, AlertTriangle, Check, Loader2, Sparkles, RefreshCw } from 'lucide-react'
 import { useData } from '../lib/DataContext'
 import { useToast } from '../components/Toast'
 import {
@@ -12,13 +12,19 @@ import {
   computeHealthScore,
   buildNarrativePrompt,
   todayIso,
+  formatDate,
+  isSnapshotValid,
+  buildRequirementsSnapshot,
 } from '../lib/utils'
 import { generateNarrative, parseClinicalNotes } from '../lib/api'
 import DateField from '../components/DateField'
 import RequirementsChecklist from '../components/RequirementsChecklist'
 import CostEstimatorPanel from '../components/CostEstimatorPanel'
+import ConfirmDialog from '../components/ConfirmDialog'
+import UnsavedChangesDialog from '../components/UnsavedChangesDialog'
 import { emptyCostEstimate, hasCostEstimateData } from '../lib/cost'
 import { useResolvedRequirements } from '../lib/useResolvedRequirements'
+import { useUnsavedChangesGuard } from '../lib/useUnsavedChangesGuard'
 
 const STEPS = [
   { n: 1, label: 'Patient & Insurance' },
@@ -103,6 +109,19 @@ export default function NewClaim() {
     }
   }, [editingId, claims])
 
+  // Baseline of the claim at hydration time — used to detect "real" edits for
+  // the unsaved-changes guard. Captured once, then refreshed on every save so
+  // the next nav check measures against the most recently saved state.
+  const baselineRef = useRef(null)
+  useEffect(() => {
+    if (hydrated && baselineRef.current === null) {
+      baselineRef.current = JSON.stringify(claim)
+    }
+  }, [hydrated, claim])
+  const isDirty = hydrated && baselineRef.current !== null && baselineRef.current !== JSON.stringify(claim)
+  const guardBypassRef = useRef(false)
+  const blocker = useUnsavedChangesGuard(isDirty, guardBypassRef)
+
   const totalFee = useMemo(
     () => claim.procedures.reduce((sum, p) => sum + (Number(p.fee) || 0), 0),
     [claim.procedures]
@@ -115,7 +134,11 @@ export default function NewClaim() {
     return true
   }, [step, claim])
 
-  const persistDraft = async (markReady = false) => {
+  // Saves the wizard's claim to localStorage. Returns the saved claim_id.
+  // Caller controls navigation — the wizard's footer buttons navigate to the
+  // claim detail page, while the unsaved-changes dialog defers navigation to
+  // `blocker.proceed()` so the user lands on whatever they originally clicked.
+  const saveDraftSilently = async (markReady = false) => {
     const claim_id = claim.claim_id || generateClaimId()
     const next = {
       ...claim,
@@ -123,28 +146,20 @@ export default function NewClaim() {
       total_fee: totalFee,
       status: markReady ? 'ready' : 'draft',
     }
-    // Invalidate the per-claim requirements snapshot if payer or procedures
-    // changed since it was taken — the snapshot would no longer match the
-    // active payer/CDT combination. Clearing checklist too because the
-    // checked-item names won't survive a refetch.
-    const existing = editingId ? claims.find(c => c.claim_id === editingId) : null
-    const snap = existing?.requirements_snapshot
-    if (snap) {
-      const newCodes = [...next.procedures.map(p => p.cdt_code).filter(Boolean)].sort()
-      const oldCodes = [...(snap.cdt_codes || [])].sort()
-      const payerChanged = snap.payer_id !== next.payer_id
-      const codesChanged = newCodes.length !== oldCodes.length
-        || newCodes.some((c, i) => c !== oldCodes[i])
-      if (payerChanged || codesChanged) {
-        next.requirements_snapshot = null
-        next.checklist = []
-      }
-    }
+    await saveClaim(next)
+    // Refresh the dirty-detection baseline so isDirty becomes false post-save.
+    baselineRef.current = JSON.stringify(next)
+    return claim_id
+  }
+
+  const persistDraft = async (markReady = false) => {
     try {
-      await saveClaim(next)
+      guardBypassRef.current = true
+      const claim_id = await saveDraftSilently(markReady)
       show(markReady ? 'Claim marked as ready' : 'Draft saved', 'success')
       navigate(`/claims/${claim_id}`)
     } catch {
+      guardBypassRef.current = false
       show('Failed to save claim', 'error')
     }
   }
@@ -168,6 +183,14 @@ export default function NewClaim() {
         {step === 3 && <Step3 claim={claim} setClaim={setClaim} validationAttempted={validationAttempted} />}
         {step === 4 && <Step4 claim={claim} setClaim={setClaim} totalFee={totalFee} onSaveDraft={() => persistDraft(false)} onMarkReady={() => persistDraft(true)} />}
       </div>
+
+      <UnsavedChangesDialog
+        blocker={blocker}
+        onSave={() => saveDraftSilently(false)}
+        onSaveError={() => show('Save failed', 'error')}
+        saveLabel="Save as Draft & Leave"
+        message="Save this claim as a draft before leaving?"
+      />
 
       {step !== 4 && (
         <div className="flex justify-between">
@@ -644,12 +667,43 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
   const { cdtCodes, getPayer } = useData()
   const { show } = useToast()
   const payer = getPayer(claim.payer_id)
-  // useResolvedRequirements: returns groups with source ∈ {'payer', 'ai-suggested',
-  // 'ai-loading', 'ai-error'}. AI is auto-fetched per (payer + cdt_code) when no
-  // payer-specific entry exists; the user clicks Save Requirements to persist.
-  const { groups: requirementGroups, saveAi, retryAi } = useResolvedRequirements(claim)
+  // Skip the AI fetch when the wizard already has a valid per-claim snapshot.
+  // The snapshot ships with the claim on save so the Claim Detail page also
+  // doesn't refetch — net result: AI runs once for the lifetime of a claim
+  // (until the user clicks Refresh Requirements or changes payer/codes).
+  const hasSnapshot = isSnapshotValid(claim)
+  const { groups: liveGroups, saveAi, retryAi } = useResolvedRequirements(hasSnapshot ? null : claim)
+  const requirementGroups = useMemo(() => {
+    if (hasSnapshot) {
+      return (claim.requirements_snapshot.groups || []).map(g => ({ ...g, frozen: true }))
+    }
+    return liveGroups
+  }, [hasSnapshot, claim, liveGroups])
+
+  // Auto-snapshot the live AI result onto the wizard's claim state the first
+  // time it's fully resolved.
+  const snapshotInFlight = useRef(false)
+  useEffect(() => {
+    if (isSnapshotValid(claim)) return
+    if (snapshotInFlight.current) return
+    if (!liveGroups || liveGroups.length === 0) return
+    if (!liveGroups.every(g => g.source === 'payer' || g.source === 'ai-suggested')) return
+    snapshotInFlight.current = true
+    setClaim(c => ({ ...c, requirements_snapshot: buildRequirementsSnapshot(c, liveGroups) }))
+  }, [claim, liveGroups, setClaim])
+
+  // Reset the in-flight latch whenever the snapshot is cleared (e.g. on
+  // Refresh) so the next resolution can fire another save.
+  useEffect(() => {
+    if (!claim.requirements_snapshot) snapshotInFlight.current = false
+  }, [claim.requirements_snapshot])
 
   const [generating, setGenerating] = useState(false)
+  const [confirmRefresh, setConfirmRefresh] = useState(false)
+  const onRefreshRequirements = () => {
+    setConfirmRefresh(false)
+    setClaim(c => ({ ...c, requirements_snapshot: null, checklist: [] }))
+  }
 
   const checked = new Set(claim.checklist || [])
   const toggleItem = (item) => {
@@ -711,13 +765,38 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
       </div>
 
       {/* === Requirements Checklist (most prominent — health score + progress + items) === */}
-      <RequirementsChecklist
-        groups={requirementGroups}
-        checked={checked}
-        onToggle={toggleItem}
-        score={score}
-        onSaveAi={saveAi}
-        onRetryAi={retryAi}
+      <div className="space-y-3">
+        {claim.requirements_snapshot && (
+          <div className="flex items-center justify-between gap-3 flex-wrap px-1">
+            <span className="text-xs text-text-muted">
+              Requirements loaded {formatDate(claim.requirements_snapshot.generated_at)}
+            </span>
+            <button
+              onClick={() => setConfirmRefresh(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border-warm rounded-full text-text-strong hover:bg-cream-light"
+            >
+              <RefreshCw size={12} /> Refresh Requirements
+            </button>
+          </div>
+        )}
+        <RequirementsChecklist
+          groups={requirementGroups}
+          checked={checked}
+          onToggle={toggleItem}
+          score={score}
+          onSaveAi={saveAi}
+          onRetryAi={retryAi}
+        />
+      </div>
+
+      <ConfirmDialog
+        open={confirmRefresh}
+        title="Refresh requirements?"
+        message="This will reset your checklist. Are you sure?"
+        confirmLabel="Refresh"
+        danger
+        onCancel={() => setConfirmRefresh(false)}
+        onConfirm={onRefreshRequirements}
       />
 
       {/* === Watch-outs (after the checklist) === */}
