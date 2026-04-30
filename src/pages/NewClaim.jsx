@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, Trash2, ChevronLeft, ChevronRight, AlertTriangle, CircleDot, Check, Loader2, Sparkles } from 'lucide-react'
+import { Plus, Trash2, ChevronLeft, ChevronRight, AlertTriangle, Check, Loader2, Sparkles } from 'lucide-react'
 import { useData } from '../lib/DataContext'
 import { useToast } from '../components/Toast'
 import {
@@ -14,6 +14,11 @@ import {
   todayIso,
 } from '../lib/utils'
 import { generateNarrative, parseClinicalNotes } from '../lib/api'
+import DateField from '../components/DateField'
+import RequirementsChecklist from '../components/RequirementsChecklist'
+import CostEstimatorPanel from '../components/CostEstimatorPanel'
+import { emptyCostEstimate, hasCostEstimateData } from '../lib/cost'
+import { useResolvedRequirements } from '../lib/useResolvedRequirements'
 
 const STEPS = [
   { n: 1, label: 'Patient & Insurance' },
@@ -32,19 +37,21 @@ function emptyClaim() {
     payer_id: '',
     date_of_service: todayIso(),
     procedures: [{ cdt_code: '', quadrants: [], tooth_numbers: '', fee: '' }],
+    cost_estimate: emptyCostEstimate(),
     clinical_findings: {
       diagnosis: '',
       probing_depths: { Q1: '', Q2: '', Q3: '', Q4: '' },
       bop_percentage: '',
       bone_loss: '',
       additional_notes: '',
-      last_prophy_date: '',
+      last_prophy_date: todayIso(),
       prior_perio_treatment: false,
-      prior_perio_date: '',
+      prior_perio_date: todayIso(),
     },
     generated_narrative: '',
     narrative_approved: false,
     checklist: [],
+    requirements_snapshot: null,
     submission_date: null,
     outcome: null,
     outcome_date: null,
@@ -53,6 +60,24 @@ function emptyClaim() {
     total_fee: 0,
     status: 'draft',
   }
+}
+
+// ---------- Clinical Findings validation ----------
+// Required: Diagnosis, at least one quadrant of probing depths, BOP percentage.
+// Everything else is optional.
+function clinicalFindingsErrors(cf = {}) {
+  const errors = {}
+  if (!cf.diagnosis || !cf.diagnosis.trim()) errors.diagnosis = 'Diagnosis is required.'
+  const pd = cf.probing_depths || {}
+  const anyProbing = ['Q1', 'Q2', 'Q3', 'Q4'].some(q => (pd[q] || '').trim())
+  if (!anyProbing) errors.probing_depths = 'Enter probing depths for at least one quadrant.'
+  if (!cf.bop_percentage && cf.bop_percentage !== 0) {
+    errors.bop_percentage = 'Bleeding on Probing percentage is required.'
+  }
+  return errors
+}
+function clinicalFindingsValid(cf) {
+  return Object.keys(clinicalFindingsErrors(cf)).length === 0
 }
 
 export default function NewClaim() {
@@ -65,6 +90,9 @@ export default function NewClaim() {
   const [step, setStep] = useState(1)
   const [claim, setClaim] = useState(emptyClaim)
   const [hydrated, setHydrated] = useState(!editingId)
+  // Tracks whether the user has tried to advance past a step with invalid input.
+  // When true, fields render their validation errors. Reset on successful advance.
+  const [validationAttempted, setValidationAttempted] = useState(false)
 
   useEffect(() => {
     if (!editingId) return
@@ -81,10 +109,9 @@ export default function NewClaim() {
   )
 
   const canAdvance = useMemo(() => {
-    // Patient ID/name is optional — only payer + date of service are required to advance.
     if (step === 1) return !!claim.payer_id && !!claim.date_of_service
     if (step === 2) return claim.procedures.length > 0 && claim.procedures.every(p => p.cdt_code && (Number(p.fee) >= 0))
-    if (step === 3) return claim.clinical_findings.diagnosis.trim()
+    if (step === 3) return clinicalFindingsValid(claim.clinical_findings)
     return true
   }, [step, claim])
 
@@ -95,6 +122,23 @@ export default function NewClaim() {
       claim_id,
       total_fee: totalFee,
       status: markReady ? 'ready' : 'draft',
+    }
+    // Invalidate the per-claim requirements snapshot if payer or procedures
+    // changed since it was taken — the snapshot would no longer match the
+    // active payer/CDT combination. Clearing checklist too because the
+    // checked-item names won't survive a refetch.
+    const existing = editingId ? claims.find(c => c.claim_id === editingId) : null
+    const snap = existing?.requirements_snapshot
+    if (snap) {
+      const newCodes = [...next.procedures.map(p => p.cdt_code).filter(Boolean)].sort()
+      const oldCodes = [...(snap.cdt_codes || [])].sort()
+      const payerChanged = snap.payer_id !== next.payer_id
+      const codesChanged = newCodes.length !== oldCodes.length
+        || newCodes.some((c, i) => c !== oldCodes[i])
+      if (payerChanged || codesChanged) {
+        next.requirements_snapshot = null
+        next.checklist = []
+      }
     }
     try {
       await saveClaim(next)
@@ -121,7 +165,7 @@ export default function NewClaim() {
       <div className="bg-white rounded-lg border border-gray-200 p-6">
         {step === 1 && <Step1 claim={claim} setClaim={setClaim} />}
         {step === 2 && <Step2 claim={claim} setClaim={setClaim} totalFee={totalFee} />}
-        {step === 3 && <Step3 claim={claim} setClaim={setClaim} />}
+        {step === 3 && <Step3 claim={claim} setClaim={setClaim} validationAttempted={validationAttempted} />}
         {step === 4 && <Step4 claim={claim} setClaim={setClaim} totalFee={totalFee} onSaveDraft={() => persistDraft(false)} onMarkReady={() => persistDraft(true)} />}
       </div>
 
@@ -139,9 +183,17 @@ export default function NewClaim() {
               Save as Draft
             </button>
             <button
-              onClick={() => setStep(s => Math.min(4, s + 1))}
-              disabled={!canAdvance}
-              className="inline-flex items-center gap-1 px-4 py-2 text-sm bg-navy text-white rounded-md hover:opacity-90 disabled:opacity-40"
+              onClick={() => {
+                if (!canAdvance) {
+                  // Show validation errors if user tries to advance without meeting requirements.
+                  setValidationAttempted(true)
+                  return
+                }
+                setValidationAttempted(false)
+                setStep(s => Math.min(4, s + 1))
+              }}
+              disabled={false}  // we handle validation in onClick so we can show messages
+              className={`inline-flex items-center gap-1 px-4 py-2 text-sm rounded-md ${canAdvance ? 'bg-navy text-white hover:opacity-90' : 'bg-navy/50 text-white cursor-not-allowed'}`}
             >
               Next <ChevronRight size={16} />
             </button>
@@ -202,8 +254,7 @@ function Step1({ claim, setClaim }) {
         />
       </Field>
       <Field label="Date of Service">
-        <input
-          type="date"
+        <DateField
           className={inputCls}
           value={claim.date_of_service}
           onChange={e => setClaim({ ...claim, date_of_service: e.target.value })}
@@ -410,35 +461,75 @@ function ProcedureRow({ idx, proc, cdtCodes, getFeeForCode, onUpdate, onRemove }
   )
 }
 
-// ---------- Step 3 ----------
+// ---------- Step 3 (Clinical Findings) ----------
 
-function Step3({ claim, setClaim }) {
+function Step3({ claim, setClaim, validationAttempted }) {
   const cf = claim.clinical_findings
   const setCf = (patch) => setClaim({ ...claim, clinical_findings: { ...cf, ...patch } })
+
+  // Live errors map. Only surface visually after the user has tried to advance.
+  const errors = clinicalFindingsErrors(cf)
+  const showErrors = validationAttempted
+  const errCls = (key) => showErrors && errors[key]
+    ? 'border-danger bg-danger/5 focus:ring-danger/30 focus:border-danger'
+    : ''
+  const probingError = showErrors && errors.probing_depths
 
   return (
     <div className="space-y-5">
       <SmartPaste claim={claim} setClaim={setClaim} />
 
+      <p className="text-sm text-text-muted">
+        Fields marked with <span className="text-danger font-semibold">*</span> are required.
+      </p>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <Field label="Diagnosis" className="md:col-span-2">
-        <input list="diagnosis-suggestions" className={inputCls} value={cf.diagnosis} onChange={e => setCf({ diagnosis: e.target.value })} placeholder="e.g., Generalized Stage III, Grade B periodontitis" />
+      <Field label={<>Diagnosis <Required /></>} className="md:col-span-2">
+        <input
+          list="diagnosis-suggestions"
+          className={`${inputCls} ${errCls('diagnosis')}`}
+          value={cf.diagnosis}
+          onChange={e => setCf({ diagnosis: e.target.value })}
+          placeholder="e.g., Generalized Stage III, Grade B periodontitis"
+        />
         <datalist id="diagnosis-suggestions">
           {DIAGNOSIS_SUGGESTIONS.map(d => <option key={d} value={d} />)}
         </datalist>
+        {showErrors && errors.diagnosis && <FieldError>{errors.diagnosis}</FieldError>}
       </Field>
 
-      {QUADRANTS.map(q => (
-        <Field key={q.key} label={`Probing Depths — ${q.clinicalKey} (${q.label})`}>
-          <input className={inputCls} placeholder="e.g., 5-8mm" value={cf.probing_depths[q.clinicalKey]} onChange={e => setCf({ probing_depths: { ...cf.probing_depths, [q.clinicalKey]: e.target.value } })} />
-        </Field>
-      ))}
+      <div className="md:col-span-2">
+        <div className="text-sm font-medium text-text-strong mb-1">
+          Probing Depths <Required />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {QUADRANTS.map(q => (
+            <label key={q.key} className="block">
+              <span className="block text-xs text-text-muted mb-1">{q.clinicalKey} ({q.label})</span>
+              <input
+                className={`${inputCls} ${probingError ? 'border-danger bg-danger/5' : ''}`}
+                placeholder="e.g., 5-8mm"
+                value={cf.probing_depths[q.clinicalKey]}
+                onChange={e => setCf({ probing_depths: { ...cf.probing_depths, [q.clinicalKey]: e.target.value } })}
+              />
+            </label>
+          ))}
+        </div>
+        {probingError && <FieldError>{errors.probing_depths}</FieldError>}
+      </div>
 
-      <Field label="Bleeding on Probing">
+      <Field label={<>Bleeding on Probing <Required /></>}>
         <div className="relative">
-          <input type="number" min="0" max="100" className={inputCls + ' pr-8'} placeholder="e.g., 82" value={cf.bop_percentage} onChange={e => setCf({ bop_percentage: e.target.value })} />
+          <input
+            type="number" min="0" max="100"
+            className={`${inputCls} pr-8 ${errCls('bop_percentage')}`}
+            placeholder="e.g., 82"
+            value={cf.bop_percentage}
+            onChange={e => setCf({ bop_percentage: e.target.value })}
+          />
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted text-sm">%</span>
         </div>
+        {showErrors && errors.bop_percentage && <FieldError>{errors.bop_percentage}</FieldError>}
       </Field>
 
       <Field label="Bone Loss">
@@ -453,7 +544,7 @@ function Step3({ claim, setClaim }) {
       </Field>
 
       <Field label="Date of Last Prophylaxis / Maintenance">
-        <input type="date" className={inputCls} value={cf.last_prophy_date} onChange={e => setCf({ last_prophy_date: e.target.value })} />
+        <DateField className={inputCls} value={cf.last_prophy_date} onChange={e => setCf({ last_prophy_date: e.target.value })} />
       </Field>
 
       <div className="md:col-span-2 space-y-2">
@@ -463,7 +554,7 @@ function Step3({ claim, setClaim }) {
         </label>
         {cf.prior_perio_treatment && (
           <Field label="Date of Prior Treatment" className="max-w-xs">
-            <input type="date" className={inputCls} value={cf.prior_perio_date} onChange={e => setCf({ prior_perio_date: e.target.value })} />
+            <DateField className={inputCls} value={cf.prior_perio_date} onChange={e => setCf({ prior_perio_date: e.target.value })} />
           </Field>
         )}
       </div>
@@ -550,13 +641,13 @@ function SmartPaste({ claim, setClaim }) {
 // ---------- Step 4 ----------
 
 function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
-  const { requirements, cdtCodes, getPayer } = useData()
+  const { cdtCodes, getPayer } = useData()
   const { show } = useToast()
   const payer = getPayer(claim.payer_id)
-  const requirementGroups = useMemo(
-    () => getRequirementsForClaim(claim, requirements, cdtCodes),
-    [claim, requirements, cdtCodes]
-  )
+  // useResolvedRequirements: returns groups with source ∈ {'payer', 'ai-suggested',
+  // 'ai-loading', 'ai-error'}. AI is auto-fetched per (payer + cdt_code) when no
+  // payer-specific entry exists; the user clicks Save Requirements to persist.
+  const { groups: requirementGroups, saveAi, retryAi } = useResolvedRequirements(claim)
 
   const [generating, setGenerating] = useState(false)
 
@@ -595,119 +686,121 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
   }
 
   return (
-    <div className="space-y-6">
-      <HealthScore score={score} />
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          {/* Checklist */}
-          <div>
-            <h3 className="font-semibold text-text-strong mb-2">Requirements Checklist</h3>
-            <p className="text-xs text-text-muted mb-3">Items with a red dot are high denial risk; yellow is medium.</p>
-            <div className="space-y-3">
-              {requirementGroups.map((g, gi) => (
-                <div key={gi} className="border border-gray-200 rounded-md p-3">
-                  <div className="text-xs uppercase tracking-wider text-text-muted mb-2">
-                    {g.cdt_code} {g.source === 'cdt' && <span className="ml-1 text-yellow-700">(fallback — no payer-specific data)</span>}
-                  </div>
-                  <ul className="space-y-2">
-                    {g.items.map((it, ii) => (
-                      <li key={ii} className="flex items-start gap-2">
-                        <input
-                          type="checkbox"
-                          className="mt-1 h-4 w-4"
-                          checked={checked.has(it.item)}
-                          onChange={() => toggleItem(it.item)}
-                        />
-                        <RiskDot risk={it.denial_risk} />
-                        <span className={`text-sm ${checked.has(it.item) ? 'text-text-muted line-through' : 'text-text-strong'}`}>
-                          {it.item}
-                          {it.priority === 'recommended' && <span className="text-xs text-text-muted ml-1">(recommended)</span>}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-              {requirementGroups.length === 0 && <p className="text-sm text-text-muted">No procedures added yet.</p>}
-            </div>
-          </div>
-
-          {/* AI Narrative */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-semibold text-text-strong">Clinical Narrative</h3>
-              {claim.narrative_approved && <span className="inline-flex items-center gap-1 text-xs text-success font-medium"><Check size={14} /> Approved</span>}
-            </div>
-            {!claim.generated_narrative && !generating && (
-              <div className="space-y-2">
-                <button
-                  onClick={onGenerate}
-                  disabled={requirementGroups.length === 0}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-teal text-white rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-40"
-                >
-                  <Sparkles size={16} /> Generate Narrative with Claude
-                </button>
-                <button onClick={editNarrativeManually} className="ml-2 text-sm text-text-muted hover:text-navy">or write manually</button>
-              </div>
-            )}
-            {generating && (
-              <div className="flex items-center gap-2 text-sm text-text-muted">
-                <Loader2 className="animate-spin" size={16} /> Generating narrative…
-              </div>
-            )}
-            {(claim.generated_narrative || (!generating && claim.generated_narrative === '')) && !generating && (
-              <div className="space-y-2">
-                <textarea
-                  className={inputCls + ' min-h-[180px] font-serif'}
-                  value={claim.generated_narrative}
-                  onChange={e => setClaim({ ...claim, generated_narrative: e.target.value, narrative_approved: false })}
-                  placeholder="Write or paste your clinical narrative here…"
-                />
-                <div className="flex gap-2">
-                  {!claim.narrative_approved && (
-                    <button onClick={approveNarrative} disabled={!claim.generated_narrative.trim()} className="px-3 py-1.5 text-sm bg-success text-white rounded-md hover:opacity-90 disabled:opacity-40">
-                      Approve Narrative
-                    </button>
-                  )}
-                  <button onClick={onGenerate} className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50">
-                    Regenerate
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Watch-outs sidebar */}
+    <div className="space-y-8">
+      {/* === Top summary bar: prominent Total Fee + always-available Save as Draft === */}
+      <div className="flex items-center justify-between gap-4 px-5 py-4 bg-white border border-border-warm rounded-lg">
         <div>
-          <h3 className="font-semibold text-text-strong mb-2">Watch-outs</h3>
-          {allWatchOuts.length === 0 ? (
-            <p className="text-sm text-text-muted">No specific watch-outs for this payer + code combination.</p>
-          ) : (
-            <div className="space-y-2">
-              {allWatchOuts.map((w, i) => (
-                <div key={i} className="flex items-start gap-2 p-3 border border-warning/40 bg-warning/10 rounded-md text-sm text-yellow-800">
-                  <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-                  <span>{w}</span>
-                </div>
-              ))}
-            </div>
-          )}
+          <div className="text-[11px] uppercase tracking-[0.18em] text-text-muted">Total Fee</div>
+          <div className="font-serif text-3xl text-text-strong leading-tight mt-0.5">${totalFee.toFixed(2)}</div>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={onSaveDraft}
+            className="px-4 py-2 text-sm border border-border-warm rounded-full text-text-strong hover:bg-cream-light"
+          >
+            Save as Draft
+          </button>
+          <button
+            onClick={onMarkReady}
+            disabled={score !== 'green'}
+            className="px-4 py-2 text-sm bg-navy text-cream-light rounded-full hover:opacity-90 disabled:opacity-40"
+          >
+            Mark as Ready
+          </button>
         </div>
       </div>
 
-      <div className="border-t border-gray-200 pt-4 flex flex-wrap items-center justify-between gap-3">
+      {/* === Requirements Checklist (most prominent — health score + progress + items) === */}
+      <RequirementsChecklist
+        groups={requirementGroups}
+        checked={checked}
+        onToggle={toggleItem}
+        score={score}
+        onSaveAi={saveAi}
+        onRetryAi={retryAi}
+      />
+
+      {/* === Watch-outs (after the checklist) === */}
+      {allWatchOuts.length > 0 && (
+        <section>
+          <h3 className="font-serif text-xl text-text-strong mb-3">Watch-outs</h3>
+          <div className="space-y-2">
+            {allWatchOuts.map((w, i) => (
+              <div key={i} className="flex items-start gap-2 p-3.5 border border-warning/40 bg-warning/10 rounded-md text-sm text-text-strong">
+                <AlertTriangle size={16} className="shrink-0 mt-0.5 text-warning" />
+                <span>{w}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* === Optional Cost Estimate — collapsed by default; auto-expands when data present === */}
+      <ReviewCostEstimate claim={claim} setClaim={setClaim} />
+
+      {/* === Clinical Narrative (after watch-outs) === */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-serif text-xl text-text-strong">Clinical Narrative</h3>
+          {claim.narrative_approved && (
+            <span className="inline-flex items-center gap-1 text-xs text-success font-medium">
+              <Check size={14} /> Approved
+            </span>
+          )}
+        </div>
+        {!claim.generated_narrative && !generating && (
+          <div className="space-y-2">
+            <button
+              onClick={onGenerate}
+              disabled={requirementGroups.length === 0}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-navy text-cream-light rounded-full text-sm font-medium hover:opacity-90 disabled:opacity-40"
+            >
+              <Sparkles size={16} /> Generate Narrative with Claude
+            </button>
+            <button onClick={editNarrativeManually} className="ml-2 text-sm text-text-muted hover:text-text-strong">
+              or write manually
+            </button>
+          </div>
+        )}
+        {generating && (
+          <div className="flex items-center gap-2 text-sm text-text-muted">
+            <Loader2 className="animate-spin" size={16} /> Generating narrative…
+          </div>
+        )}
+        {(claim.generated_narrative || (!generating && claim.generated_narrative === '')) && !generating && (
+          <div className="space-y-2">
+            <textarea
+              className={inputCls + ' min-h-[200px] font-serif text-base leading-relaxed'}
+              value={claim.generated_narrative}
+              onChange={e => setClaim({ ...claim, generated_narrative: e.target.value, narrative_approved: false })}
+              placeholder="Write or paste your clinical narrative here…"
+            />
+            <div className="flex gap-2">
+              {!claim.narrative_approved && (
+                <button onClick={approveNarrative} disabled={!claim.generated_narrative.trim()} className="px-3.5 py-1.5 text-sm bg-success text-white rounded-full hover:opacity-90 disabled:opacity-40">
+                  Approve Narrative
+                </button>
+              )}
+              <button onClick={onGenerate} className="px-3.5 py-1.5 text-sm border border-border-warm text-text-strong rounded-full hover:bg-cream-light">
+                Regenerate
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* === Total + actions === */}
+      <div className="border-t border-border-warm pt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm">
           <span className="text-text-muted">Total fee:</span>
           <span className="font-semibold text-text-strong ml-2">${totalFee.toFixed(2)}</span>
         </div>
         <div className="flex gap-2">
-          <button onClick={onSaveDraft} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Save as Draft</button>
+          <button onClick={onSaveDraft} className="px-4 py-2 text-sm border border-border-warm rounded-full text-text-strong hover:bg-cream-light">Save as Draft</button>
           <button
             onClick={onMarkReady}
             disabled={score !== 'green'}
-            className="px-4 py-2 text-sm bg-navy text-white rounded-md hover:opacity-90 disabled:opacity-40"
+            className="px-4 py-2 text-sm bg-navy text-cream-light rounded-full hover:opacity-90 disabled:opacity-40"
           >
             Mark as Ready
           </button>
@@ -717,33 +810,68 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
   )
 }
 
-function HealthScore({ score }) {
-  const styles = {
-    green: { cls: 'bg-success/10 border-success/40 text-success', label: 'Ready to submit', desc: 'All required items checked and narrative approved.' },
-    yellow: { cls: 'bg-warning/10 border-warning/40 text-yellow-800', label: 'Recommended items missing', desc: 'Required items are checked, but recommended documents are unchecked.' },
-    red: { cls: 'bg-danger/10 border-danger/40 text-danger', label: 'Required items missing', desc: 'Check off required documents and approve the narrative before submitting.' },
-  }[score]
-  return (
-    <div className={`flex items-start gap-3 p-4 rounded-md border ${styles.cls}`}>
-      <CircleDot size={18} className="shrink-0 mt-0.5" />
-      <div>
-        <div className="font-semibold">Claim Health Score: {styles.label}</div>
-        <div className="text-sm opacity-80">{styles.desc}</div>
-      </div>
-    </div>
-  )
-}
-
-function RiskDot({ risk }) {
-  const color = risk === 'high' ? 'bg-danger' : risk === 'medium' ? 'bg-warning' : 'bg-gray-300'
-  return <span className={`inline-block w-2 h-2 rounded-full mt-1.5 shrink-0 ${color}`} aria-label={`${risk} risk`} />
-}
-
 function Field({ label, children, className = '' }) {
   return (
     <label className={`block ${className}`}>
       <span className="block text-sm font-medium text-text-strong mb-1">{label}</span>
       {children}
     </label>
+  )
+}
+
+function Required() {
+  return <span className="text-danger font-semibold ml-0.5" aria-label="required">*</span>
+}
+
+function FieldError({ children }) {
+  return <p className="text-xs text-danger mt-1">{children}</p>
+}
+
+// Optional cost-estimate section on the Review step. Collapsed by default to
+// keep the main flow uncluttered; auto-expands when a saved estimate exists
+// (e.g. when editing a claim that already has one).
+function ReviewCostEstimate({ claim, setClaim }) {
+  const { cdtCodes } = useData()
+  const initiallyOpen = hasCostEstimateData(claim.cost_estimate)
+  const [open, setOpen] = useState(initiallyOpen)
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 border border-dashed border-border-warm bg-cream-light/40 text-text-strong rounded-md text-sm hover:bg-cream-light"
+      >
+        <Plus size={16} className="text-teal" />
+        Add Cost Estimate <span className="text-text-muted">(optional)</span>
+      </button>
+    )
+  }
+
+  return (
+    <section className="border border-border-warm rounded-lg p-5 bg-white">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h3 className="font-serif text-xl text-text-strong">Cost Estimate</h3>
+          <p className="text-xs text-text-muted mt-0.5">Optional — saves with the claim. Edit later from the Claim Detail page.</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false)
+            setClaim({ ...claim, cost_estimate: emptyCostEstimate() })
+          }}
+          className="text-xs text-text-muted hover:text-text-strong"
+        >
+          Remove
+        </button>
+      </div>
+      <CostEstimatorPanel
+        procedures={claim.procedures}
+        cdtCodes={cdtCodes}
+        value={claim.cost_estimate}
+        onChange={(next) => setClaim({ ...claim, cost_estimate: next })}
+      />
+    </section>
   )
 }

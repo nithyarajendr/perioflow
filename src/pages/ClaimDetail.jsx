@@ -1,20 +1,28 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Pencil, Trash2, Send, FileDown, ClipboardCheck, AlertTriangle, Check } from 'lucide-react'
+import { ArrowLeft, Pencil, Trash2, Send, FileDown, ClipboardCheck, AlertTriangle, Check, Calculator, RefreshCw } from 'lucide-react'
 import { useData } from '../lib/DataContext'
 import { useToast } from '../components/Toast'
 import StatusBadge from '../components/StatusBadge'
 import ConfirmDialog from '../components/ConfirmDialog'
 import PrintView from '../components/PrintView'
+import DateField from '../components/DateField'
+import { RequirementsHealthSection, RequirementsListSection } from '../components/RequirementsChecklist'
+import CostEstimatorPanel from '../components/CostEstimatorPanel'
+import CostEstimatePrintView from '../components/CostEstimatePrintView'
+import SectionTOC from '../components/SectionTOC'
+import UnsavedChangesDialog from '../components/UnsavedChangesDialog'
 import {
   formatDate,
   formatMoney,
   todayIso,
-  getRequirementsForClaim,
   computeHealthScore,
   DENIAL_REASONS,
   QUADRANTS,
 } from '../lib/utils'
+import { useResolvedRequirements } from '../lib/useResolvedRequirements'
+import { useUnsavedChangesGuard } from '../lib/useUnsavedChangesGuard'
+import { emptyCostEstimate } from '../lib/cost'
 
 export default function ClaimDetail() {
   const { id } = useParams()
@@ -22,23 +30,98 @@ export default function ClaimDetail() {
   const { claims, getPayer, settings, cdtCodes, requirements, saveClaim, deleteClaim, saveRequirement } = useData()
   const { show } = useToast()
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const [confirmRefresh, setConfirmRefresh] = useState(false)
   const [submitOpen, setSubmitOpen] = useState(false)
   const [outcomeOpen, setOutcomeOpen] = useState(false)
   const [printOpen, setPrintOpen] = useState(false)
+  const [costPrintOpen, setCostPrintOpen] = useState(false)
 
   const claim = claims.find(c => c.claim_id === id)
   const payer = claim ? getPayer(claim.payer_id) : null
-  const requirementGroups = useMemo(
-    () => claim ? getRequirementsForClaim(claim, requirements, cdtCodes) : [],
-    [claim, requirements, cdtCodes]
-  )
-  const score = useMemo(() => claim ? computeHealthScore(claim, requirementGroups) : null, [claim, requirementGroups])
 
-  if (!claim) {
+  // ---- Draft state: inline edits accumulate here. Floating save bar shows when
+  //      draft differs from the persisted claim. Save Changes commits, Discard
+  //      reverts. Status transitions (Mark Ready / Submitted / Log Outcome)
+  //      commit any pending draft as a side effect — no need to save twice.
+  const [draft, setDraft] = useState(claim || null)
+  useEffect(() => {
+    // Resync when the upstream claim changes. This is a field-MERGE, not a
+    // blanket replace: server-owned fields (snapshot, status, outcomes) are
+    // pulled from the new claim, while in-progress draft edits to user-owned
+    // fields are preserved. This is what lets the auto-snapshot save below
+    // run silently in the background without clobbering live edits.
+    setDraft(d => {
+      if (!claim) return null
+      if (!d) return claim
+      return {
+        ...d,
+        // Server-owned: always take from upstream
+        requirements_snapshot: claim.requirements_snapshot,
+        status: claim.status,
+        outcome: claim.outcome,
+        outcome_date: claim.outcome_date,
+        denial_reason: claim.denial_reason,
+        denial_notes: claim.denial_notes,
+        submission_date: claim.submission_date,
+      }
+    })
+  }, [claim])
+
+  // AI-resolved requirements: only fetch when we don't already have a frozen
+  // per-claim snapshot. Once snapshot exists, we render from it directly and
+  // skip the AI call entirely (this is the fix for "checkboxes wiped on every
+  // page load").
+  const hasSnapshot = !!draft?.requirements_snapshot
+  const { groups: liveGroups, saveAi, retryAi } = useResolvedRequirements(hasSnapshot ? null : (draft || claim))
+  const requirementGroups = useMemo(() => {
+    if (hasSnapshot) {
+      return (draft.requirements_snapshot.groups || []).map(g => ({ ...g, frozen: true }))
+    }
+    return liveGroups
+  }, [hasSnapshot, draft, liveGroups])
+
+  // Auto-snapshot the resolved requirements onto the claim the FIRST time they
+  // come back fully resolved. Saves against `claim` (not `draft`) so the
+  // field-merge resync above pulls in the snapshot without disturbing live
+  // edits. The ref guards against duplicate fires across renders.
+  const snapshotInFlight = useRef(false)
+  useEffect(() => {
+    if (!claim) return
+    if (claim.requirements_snapshot) return
+    if (snapshotInFlight.current) return
+    if (!liveGroups || liveGroups.length === 0) return
+    const allResolved = liveGroups.every(g => g.source === 'payer' || g.source === 'ai-suggested')
+    if (!allResolved) return
+    snapshotInFlight.current = true
+    const snapshot = {
+      generated_at: new Date().toISOString(),
+      payer_id: claim.payer_id,
+      cdt_codes: [...(claim.procedures || []).map(p => p.cdt_code).filter(Boolean)].sort(),
+      groups: liveGroups,
+    }
+    saveClaim({ ...claim, requirements_snapshot: snapshot })
+      .catch(() => { snapshotInFlight.current = false })
+  }, [claim, liveGroups, saveClaim])
+
+  const score = useMemo(
+    () => draft ? computeHealthScore(draft, requirementGroups) : null,
+    [draft, requirementGroups]
+  )
+
+  // Unsaved-changes guard: blocks in-app navigation + tab close while the user
+  // has uncommitted edits. Computed here (before the not-found early return)
+  // because hooks must run unconditionally on every render. The bypass ref
+  // lets intentional navigations (delete) skip the block without a re-render.
+  const isDirty = !!claim && !!draft && JSON.stringify(claim) !== JSON.stringify(draft)
+  const guardBypassRef = useRef(false)
+  const blocker = useUnsavedChangesGuard(isDirty, guardBypassRef)
+
+  if (!claim || !draft) {
     return (
       <div className="space-y-3">
-        <Link to="/" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-navy"><ArrowLeft size={14} /> Back to Dashboard</Link>
-        <div className="bg-white border border-gray-200 rounded-lg p-8 text-center">
+        <Link to="/" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-strong"><ArrowLeft size={14} /> Back to Dashboard</Link>
+        <div className="bg-white border border-border-warm rounded-lg p-8 text-center">
           <p className="text-text-strong font-medium">Claim not found</p>
           <p className="text-sm text-text-muted mt-1">No claim with id <span className="font-mono">{id}</span>.</p>
         </div>
@@ -46,21 +129,90 @@ export default function ClaimDetail() {
     )
   }
 
-  const checked = new Set(claim.checklist || [])
+  const checked = new Set(draft.checklist || [])
+  const procedureCodes = (claim.procedures || []).map(p => p.cdt_code).filter(Boolean).join(', ') || '—'
 
+  // ---- Draft mutators (DON'T save; let the floating save bar commit) ----
+  const updateClinicalField = (key, value) => {
+    setDraft(d => ({ ...d, clinical_findings: { ...d.clinical_findings, [key]: value } }))
+  }
+  const updateProbingDepth = (q, value) => {
+    setDraft(d => ({
+      ...d,
+      clinical_findings: {
+        ...d.clinical_findings,
+        probing_depths: { ...d.clinical_findings.probing_depths, [q]: value },
+      },
+    }))
+  }
+  const updateNarrative = (text) => {
+    setDraft(d => ({ ...d, generated_narrative: text, narrative_approved: false }))
+  }
+  const approveNarrative = () => {
+    setDraft(d => ({ ...d, narrative_approved: true }))
+  }
+  const toggleChecklistItem = (item) => {
+    setDraft(d => {
+      const next = new Set(d.checklist || [])
+      if (next.has(item)) next.delete(item); else next.add(item)
+      return { ...d, checklist: Array.from(next) }
+    })
+  }
+  const updateCostEstimate = (next) => {
+    setDraft(d => ({ ...d, cost_estimate: next }))
+  }
+
+  const onSaveDraftEdits = async () => {
+    try {
+      await saveClaim(draft)
+      show('Changes saved', 'success')
+    } catch {
+      show('Save failed', 'error')
+    }
+  }
+  const onDiscardEdits = () => {
+    setDraft(claim)
+    setConfirmDiscard(false)
+  }
+
+  const onRefreshRequirements = async () => {
+    setConfirmRefresh(false)
+    snapshotInFlight.current = false
+    try {
+      // Clear snapshot + checklist on the persisted claim. The next render
+      // re-runs useResolvedRequirements (no snapshot), and the auto-snapshot
+      // effect persists the fresh result.
+      await saveClaim({ ...claim, requirements_snapshot: null, checklist: [] })
+      // Also drop checklist locally so the user immediately sees a clean slate
+      // even if they have unsaved edits to other fields.
+      setDraft(d => ({ ...d, requirements_snapshot: null, checklist: [] }))
+      show('Refreshing requirements…', 'success')
+    } catch {
+      show('Failed to refresh requirements', 'error')
+    }
+  }
+
+  // ---- Status transition handlers — commit pending draft + the status change in one save. ----
+  const onMarkReady = async () => {
+    try {
+      await saveClaim({ ...draft, status: 'ready' })
+      show('Claim marked as ready', 'success')
+    } catch {
+      show('Save failed', 'error')
+    }
+  }
   const onMarkSubmitted = async (date) => {
     try {
-      await saveClaim({ ...claim, status: 'submitted', submission_date: date })
+      await saveClaim({ ...draft, status: 'submitted', submission_date: date })
       show('Claim marked as submitted', 'success')
       setSubmitOpen(false)
     } catch {
       show('Failed to update claim', 'error')
     }
   }
-
   const onLogOutcome = async ({ outcome, denial_reason, denial_notes }) => {
     const next = {
-      ...claim,
+      ...draft,
       status: outcome,
       outcome,
       outcome_date: todayIso(),
@@ -71,7 +223,6 @@ export default function ClaimDetail() {
       await saveClaim(next)
       show(`Outcome logged: ${outcome}`, 'success')
       setOutcomeOpen(false)
-      // Denial-feedback loop: if denied, check & possibly upgrade requirement
       if (outcome === 'denied' && denial_reason) {
         await runDenialFeedback({
           newClaim: next,
@@ -88,54 +239,128 @@ export default function ClaimDetail() {
 
   const onDelete = async () => {
     setConfirmDelete(false)
+    // Bypass the unsaved-changes guard for this intentional navigation: the
+    // claim is being removed, so any "unsaved edits" are moot.
+    guardBypassRef.current = true
     try {
       await deleteClaim(claim.claim_id)
       show('Claim deleted', 'success')
       navigate('/')
     } catch {
+      guardBypassRef.current = false
       show('Delete failed', 'error')
     }
   }
 
+  // TOC sections — visible to scroll-spy in this exact order. The "Cost
+  // Estimate" entry appears after Clinical Findings to match the page order.
+  const tocSections = [
+    { id: 'patient-insurance', label: 'Patient & Insurance' },
+    { id: 'claim-health-score', label: 'Claim Health Score' },
+    { id: 'documentation-checklist', label: 'Documentation Checklist' },
+    { id: 'procedures', label: 'Procedures' },
+    { id: 'clinical-findings', label: 'Clinical Findings' },
+    { id: 'cost-estimate', label: 'Cost Estimate' },
+    { id: 'narrative', label: 'Narrative' },
+  ]
+
   return (
-    <div className="space-y-6 max-w-5xl">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <Link to="/" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-navy mb-2"><ArrowLeft size={14} /> Back to Dashboard</Link>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold text-text-strong">{claim.patient_name || 'Untitled Claim'}</h1>
-            <StatusBadge status={claim.status} />
+    <div className="space-y-6 max-w-5xl pb-24">
+      {/* === Rich header with prominent status flow === */}
+      <div id="patient-insurance" className="scroll-mt-20">
+        <Link to="/" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-strong mb-3">
+          <ArrowLeft size={14} /> Back to Dashboard
+        </Link>
+        <div className="bg-white border border-border-warm rounded-lg p-6">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="min-w-0">
+              <h1 className="font-serif text-3xl text-text-strong leading-tight">
+                {claim.patient_name || claim.claim_id}
+              </h1>
+              <p className="text-text-muted text-sm mt-1.5">
+                <span className="font-mono">{claim.claim_id}</span>
+                <span className="mx-1.5">·</span>
+                created {formatDate(claim.created_at)}
+                {settings?.provider_name && (
+                  <><span className="mx-1.5">·</span>{settings.provider_name}</>
+                )}
+              </p>
+            </div>
+            <SecondaryActions
+              status={claim.status}
+              onEdit={() => navigate(`/new-claim?id=${claim.claim_id}`)}
+              onDelete={() => setConfirmDelete(true)}
+              onPrint={() => setPrintOpen(true)}
+            />
           </div>
-          <p className="text-text-muted text-sm mt-1">
-            <span className="font-mono">{claim.claim_id}</span> · created {formatDate(claim.created_at)}
-          </p>
+
+          {/* === Prominent Status Flow === */}
+          <StatusFlow
+            status={claim.status}
+            outcome={claim.outcome}
+            outcomeDate={claim.outcome_date}
+            denialReason={claim.denial_reason}
+            score={score}
+            onMarkReady={onMarkReady}
+            onMarkSubmitted={() => setSubmitOpen(true)}
+            onLogOutcome={() => setOutcomeOpen(true)}
+          />
+
+          {/* At-a-glance stats row */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-x-6 gap-y-4 pt-4 mt-5 border-t border-border-warm">
+            <HeaderStat label="Date of Service">{formatDate(claim.date_of_service) || '—'}</HeaderStat>
+            <HeaderStat label="Payer">{payer?.name || claim.payer_id || '—'}</HeaderStat>
+            <HeaderStat label="Plan Type">{payer?.plan_type || '—'}</HeaderStat>
+            <HeaderStat label="Procedures">
+              <span className="font-mono">{procedureCodes}</span>
+            </HeaderStat>
+            <HeaderStat label="Total Fee">
+              <span className="font-serif text-2xl text-text-strong leading-none">{formatMoney(claim.total_fee)}</span>
+            </HeaderStat>
+          </div>
         </div>
-        <ActionButtons
-          status={claim.status}
-          onEdit={() => navigate(`/new-claim?id=${claim.claim_id}`)}
-          onDelete={() => setConfirmDelete(true)}
-          onMarkSubmitted={() => setSubmitOpen(true)}
-          onLogOutcome={() => setOutcomeOpen(true)}
-          onPrint={() => setPrintOpen(true)}
+      </div>
+
+      {/* Sticky horizontal TOC for jumping between sections. */}
+      <SectionTOC sections={tocSections} />
+
+      {/* Documentation Requirements — split into two TOC-anchored sections so
+          the scroll-spy can highlight Health Score vs Documentation Checklist
+          independently as the user scrolls. */}
+      <div id="claim-health-score" className="scroll-mt-20">
+        <RequirementsHealthSection
+          groups={requirementGroups}
+          checked={checked}
+          score={score}
+        />
+      </div>
+      <div id="documentation-checklist" className="scroll-mt-20 space-y-3">
+        {draft.requirements_snapshot && (
+          <div className="flex items-center justify-between gap-3 flex-wrap px-1">
+            <span className="text-xs text-text-muted">
+              Requirements loaded {formatDate(draft.requirements_snapshot.generated_at)}
+            </span>
+            <button
+              onClick={() => setConfirmRefresh(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border-warm rounded-full text-text-strong hover:bg-cream-light"
+            >
+              <RefreshCw size={12} /> Refresh Requirements
+            </button>
+          </div>
+        )}
+        <RequirementsListSection
+          groups={requirementGroups}
+          checked={checked}
+          onToggle={toggleChecklistItem}
+          onSaveAi={saveAi}
+          onRetryAi={retryAi}
         />
       </div>
 
-      {claim.outcome && (
-        <OutcomeBanner claim={claim} />
-      )}
-
-      <Section title="Patient & Insurance">
-        <Grid>
-          <Item label="Patient">{claim.patient_name || '—'}</Item>
-          <Item label="Date of Service">{formatDate(claim.date_of_service)}</Item>
-          <Item label="Payer">{payer?.name || claim.payer_id || '—'}</Item>
-          <Item label="Plan Type">{payer?.plan_type || '—'}</Item>
-        </Grid>
-      </Section>
-
+      <div id="procedures" className="scroll-mt-20">
       <Section title="Procedures">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-left text-xs uppercase tracking-wider text-text-muted">
+          <thead className="bg-cream-light text-left text-xs uppercase tracking-wider text-text-muted">
             <tr>
               <th className="px-3 py-2">CDT</th>
               <th className="px-3 py-2">Description</th>
@@ -143,7 +368,7 @@ export default function ClaimDetail() {
               <th className="px-3 py-2 text-right">Fee</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-border-warm">
             {claim.procedures.map((p, i) => {
               const cdt = cdtCodes.find(c => c.code === p.cdt_code)
               const loc = (p.quadrants?.length ? p.quadrants.join(', ') : null) || p.tooth_numbers || '—'
@@ -158,67 +383,127 @@ export default function ClaimDetail() {
             })}
           </tbody>
           <tfoot>
-            <tr className="border-t-2 border-gray-200">
+            <tr className="border-t-2 border-border-warm">
               <td colSpan={3} className="px-3 py-2 text-right font-semibold text-text-strong">Total</td>
               <td className="px-3 py-2 text-right font-semibold text-text-strong">{formatMoney(claim.total_fee)}</td>
             </tr>
           </tfoot>
         </table>
       </Section>
+      </div>
 
-      <Section title="Clinical Findings">
+      {/* Clinical Findings — inline editable. Edits accumulate in draft; floating save bar commits. */}
+      <div id="clinical-findings" className="scroll-mt-20">
+      <Section title={<span className="flex items-center gap-2">Clinical Findings <EditHint /></span>}>
         <Grid>
-          <Item label="Diagnosis" full>{claim.clinical_findings.diagnosis || '—'}</Item>
+          <EditableItem
+            label="Diagnosis"
+            value={draft.clinical_findings.diagnosis}
+            onSave={v => updateClinicalField('diagnosis', v)}
+            placeholder="e.g., Generalized Stage III, Grade B periodontitis"
+            full
+          />
           {QUADRANTS.map(q => (
-            <Item key={q.key} label={`Probing ${q.clinicalKey} (${q.label})`}>
-              {claim.clinical_findings.probing_depths?.[q.clinicalKey] || '—'}
-            </Item>
+            <EditableItem
+              key={q.key}
+              label={`Probing ${q.clinicalKey} (${q.label})`}
+              value={draft.clinical_findings.probing_depths?.[q.clinicalKey]}
+              onSave={v => updateProbingDepth(q.clinicalKey, v)}
+              placeholder="e.g., 5-8mm"
+            />
           ))}
-          <Item label="Bleeding on Probing">{claim.clinical_findings.bop_percentage ? `${claim.clinical_findings.bop_percentage}%` : '—'}</Item>
-          <Item label="Bone Loss">{claim.clinical_findings.bone_loss || '—'}</Item>
-          <Item label="Last Prophylaxis">{formatDate(claim.clinical_findings.last_prophy_date) || '—'}</Item>
-          <Item label="Prior Perio Treatment">
-            {claim.clinical_findings.prior_perio_treatment
-              ? `Yes${claim.clinical_findings.prior_perio_date ? ` (${formatDate(claim.clinical_findings.prior_perio_date)})` : ''}`
-              : 'No'}
-          </Item>
-          <Item label="Additional Notes" full>{claim.clinical_findings.additional_notes || '—'}</Item>
+          <EditableItem
+            label="Bleeding on Probing"
+            value={draft.clinical_findings.bop_percentage}
+            onSave={v => updateClinicalField('bop_percentage', v)}
+            placeholder="e.g., 82"
+            type="number"
+            suffix="%"
+          />
+          <EditableItem
+            label="Bone Loss"
+            value={draft.clinical_findings.bone_loss}
+            onSave={v => updateClinicalField('bone_loss', v)}
+            placeholder="e.g., Moderate horizontal, 3-4mm"
+          />
+          <EditableDateItem
+            label="Last Prophylaxis"
+            value={draft.clinical_findings.last_prophy_date}
+            onSave={v => updateClinicalField('last_prophy_date', v)}
+          />
+          <div>
+            <div className="text-xs text-text-muted mb-1">Prior Perio Treatment</div>
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={!!draft.clinical_findings.prior_perio_treatment}
+                onChange={e => updateClinicalField('prior_perio_treatment', e.target.checked)}
+              />
+              <span className="text-sm text-text-strong">Patient has had prior SRP or surgery</span>
+            </label>
+            {draft.clinical_findings.prior_perio_treatment && (
+              <div className="mt-2">
+                <DateField
+                  className={inlineDateCls}
+                  value={draft.clinical_findings.prior_perio_date}
+                  onChange={e => updateClinicalField('prior_perio_date', e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+          <EditableItem
+            label="Additional Notes"
+            value={draft.clinical_findings.additional_notes}
+            onSave={v => updateClinicalField('additional_notes', v)}
+            placeholder="Other findings — calculus, furcation, recession, mobility…"
+            multiline
+            full
+          />
         </Grid>
       </Section>
+      </div>
 
+      {/* Patient Cost Estimate (between Clinical Findings and Narrative — TOC order) */}
+      <div id="cost-estimate" className="scroll-mt-20">
+      <Section title={
+        <span className="flex items-center gap-2">
+          <Calculator size={16} className="text-teal" />
+          Patient Cost Estimate
+          <EditHint />
+        </span>
+      }>
+        <CostEstimatorPanel
+          procedures={claim.procedures}
+          cdtCodes={cdtCodes}
+          value={draft.cost_estimate || emptyCostEstimate()}
+          onChange={updateCostEstimate}
+          onPrint={() => setCostPrintOpen(true)}
+        />
+      </Section>
+      </div>
+
+      {/* Clinical Narrative — inline editable. Editing un-approves; click Approve to re-approve. */}
+      <div id="narrative" className="scroll-mt-20">
       <Section title={
         <span className="flex items-center gap-2">
           Clinical Narrative
-          {claim.narrative_approved && <span className="inline-flex items-center gap-1 text-xs text-success font-medium"><Check size={14} /> Approved</span>}
+          {draft.narrative_approved && (
+            <span className="inline-flex items-center gap-1 text-xs text-success font-medium">
+              <Check size={14} /> Approved
+            </span>
+          )}
+          <EditHint />
         </span>
       }>
-        <p className="text-sm whitespace-pre-wrap leading-relaxed text-text-strong">
-          {claim.generated_narrative || <span className="italic text-text-muted">No narrative recorded.</span>}
-        </p>
+        <InlineNarrative
+          value={draft.generated_narrative}
+          approved={draft.narrative_approved}
+          onSave={updateNarrative}
+          onApprove={approveNarrative}
+        />
       </Section>
-
-      <Section title="Documentation Checklist">
-        <div className="space-y-3">
-          {requirementGroups.map((g, gi) => (
-            <div key={gi} className="border border-gray-200 rounded-md p-3">
-              <div className="text-xs uppercase tracking-wider text-text-muted mb-2">{g.cdt_code}</div>
-              <ul className="space-y-1">
-                {g.items.map((it, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm">
-                    <span className={`mt-1 inline-block w-3 h-3 rounded-sm border ${checked.has(it.item) ? 'bg-success border-success' : 'border-gray-300'}`}>
-                      {checked.has(it.item) && <Check size={10} className="text-white" />}
-                    </span>
-                    <span className={checked.has(it.item) ? 'text-text-strong' : 'text-text-muted'}>{it.item}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-        {score && <p className="text-xs text-text-muted mt-3">Claim Health Score: <strong className={
-          score === 'green' ? 'text-success' : score === 'yellow' ? 'text-yellow-700' : 'text-danger'
-        }>{score === 'green' ? 'Ready' : score === 'yellow' ? 'Recommended items missing' : 'Required items missing'}</strong></p>}
-      </Section>
+      </div>
 
       <ConfirmDialog
         open={confirmDelete}
@@ -229,57 +514,152 @@ export default function ClaimDetail() {
         onCancel={() => setConfirmDelete(false)}
         onConfirm={onDelete}
       />
+      <ConfirmDialog
+        open={confirmDiscard}
+        title="Discard unsaved changes?"
+        message="You have unsaved edits. Discarding will revert them to what's currently saved."
+        confirmLabel="Discard"
+        danger
+        onCancel={() => setConfirmDiscard(false)}
+        onConfirm={onDiscardEdits}
+      />
+      <ConfirmDialog
+        open={confirmRefresh}
+        title="Refresh requirements?"
+        message="This will reset your checklist. Are you sure?"
+        confirmLabel="Refresh"
+        danger
+        onCancel={() => setConfirmRefresh(false)}
+        onConfirm={onRefreshRequirements}
+      />
       {submitOpen && <SubmitModal claim={claim} onCancel={() => setSubmitOpen(false)} onConfirm={onMarkSubmitted} />}
       {outcomeOpen && <OutcomeModal onCancel={() => setOutcomeOpen(false)} onConfirm={onLogOutcome} />}
       <PrintView open={printOpen} onClose={() => setPrintOpen(false)} claim={claim} payer={payer} settings={settings} cdtCodes={cdtCodes} />
+      <CostEstimatePrintView
+        open={costPrintOpen}
+        onClose={() => setCostPrintOpen(false)}
+        patientName={claim.patient_name}
+        procedures={claim.procedures}
+        costEstimate={draft.cost_estimate}
+        settings={settings}
+        cdtCodes={cdtCodes}
+        payerName={payer?.name}
+      />
+
+      {/* === Floating save bar — only when there are unsaved inline edits. === */}
+      {isDirty && (
+        <FloatingSaveBar
+          onSave={onSaveDraftEdits}
+          onDiscard={() => setConfirmDiscard(true)}
+        />
+      )}
+
+      <UnsavedChangesDialog
+        blocker={blocker}
+        onSave={() => saveClaim(draft)}
+        onSaveError={() => show('Save failed', 'error')}
+      />
     </div>
   )
 }
 
-function ActionButtons({ status, onEdit, onDelete, onMarkSubmitted, onLogOutcome, onPrint }) {
-  const btn = 'inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-md hover:opacity-90'
+function FloatingSaveBar({ onSave, onDiscard }) {
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 bg-navy text-cream-light shadow-2xl rounded-full px-5 py-3 flex items-center gap-3 max-w-[calc(100vw-2rem)]">
+      <span className="text-sm">You have unsaved changes</span>
+      <div className="flex gap-2">
+        <button
+          onClick={onDiscard}
+          className="px-3 py-1.5 text-sm border border-cream-light/30 rounded-full text-cream-light/90 hover:bg-cream-light/10"
+        >
+          Discard
+        </button>
+        <button
+          onClick={onSave}
+          className="px-4 py-1.5 text-sm bg-teal text-white font-medium rounded-full hover:opacity-90"
+        >
+          Save Changes
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// === Prominent status flow — big status pill + obvious next-action button. ===
+function StatusFlow({ status, outcome, outcomeDate, denialReason, score, onMarkReady, onMarkSubmitted, onLogOutcome }) {
+  const STATUS_DISPLAY = {
+    draft:     { label: 'Draft',     cls: 'bg-gray-100 text-gray-700' },
+    ready:     { label: 'Ready',     cls: 'bg-teal/15 text-teal' },
+    submitted: { label: 'Submitted', cls: 'bg-blue-100 text-blue-700' },
+    paid:      { label: 'Paid',      cls: 'bg-success/15 text-success' },
+    denied:    { label: 'Denied',    cls: 'bg-danger/15 text-danger' },
+    pended:    { label: 'Pended',    cls: 'bg-warning/15 text-yellow-700' },
+  }
+  const s = STATUS_DISPLAY[status] || STATUS_DISPLAY.draft
+
+  // Next-action button per status. Big, prominent, always visible.
+  let action = null
+  if (status === 'draft') {
+    action = (
+      <button
+        onClick={onMarkReady}
+        disabled={score !== 'green'}
+        title={score !== 'green' ? 'Complete the requirements checklist + approve narrative first.' : ''}
+        className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-cream-light text-sm font-medium rounded-full hover:opacity-90 disabled:opacity-40"
+      >
+        <Check size={16} /> Mark as Ready
+      </button>
+    )
+  } else if (status === 'ready') {
+    action = (
+      <button
+        onClick={onMarkSubmitted}
+        className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-cream-light text-sm font-medium rounded-full hover:opacity-90"
+      >
+        <Send size={16} /> Mark as Submitted
+      </button>
+    )
+  } else if (status === 'submitted') {
+    action = (
+      <button
+        onClick={onLogOutcome}
+        className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal text-white text-sm font-medium rounded-full hover:opacity-90"
+      >
+        <ClipboardCheck size={16} /> Log Outcome
+      </button>
+    )
+  }
+
+  return (
+    <div className="mt-5 flex items-center justify-between gap-4 flex-wrap p-4 bg-cream-light rounded-lg border border-border-warm">
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-[11px] uppercase tracking-[0.18em] text-text-muted">Status</span>
+        <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${s.cls}`}>
+          {s.label}
+        </span>
+        {outcome && (
+          <span className="text-sm text-text-muted">
+            {outcomeDate && `on ${formatDate(outcomeDate)}`}
+            {denialReason && ` — ${denialReason}`}
+          </span>
+        )}
+      </div>
+      {action}
+    </div>
+  )
+}
+
+function SecondaryActions({ status, onEdit, onDelete, onPrint }) {
+  const btn = 'inline-flex items-center gap-1.5 px-3 py-2 text-sm border border-border-warm rounded-full text-text-strong hover:bg-cream-light'
   return (
     <div className="flex flex-wrap gap-2">
+      <button onClick={onEdit} className={btn}><Pencil size={14} /> Edit in Wizard</button>
+      <button onClick={onPrint} className={btn}><FileDown size={14} /> Generate PDF</button>
       {status === 'draft' && (
-        <>
-          <button onClick={onEdit} className={`${btn} bg-navy text-white`}><Pencil size={14} /> Edit Claim</button>
-          <button onClick={onDelete} className={`${btn} border border-danger/40 text-danger`}><Trash2 size={14} /> Delete</button>
-        </>
+        <button onClick={onDelete} className="inline-flex items-center gap-1.5 px-3 py-2 text-sm border border-danger/40 text-danger rounded-full hover:bg-danger/5">
+          <Trash2 size={14} /> Delete
+        </button>
       )}
-      {status === 'ready' && (
-        <>
-          <button onClick={onEdit} className={`${btn} border border-gray-300 text-text-strong`}><Pencil size={14} /> Edit</button>
-          <button onClick={onMarkSubmitted} className={`${btn} bg-navy text-white`}><Send size={14} /> Mark as Submitted</button>
-          <button onClick={onPrint} className={`${btn} border border-gray-300 text-text-strong`}><FileDown size={14} /> Generate PDF</button>
-        </>
-      )}
-      {status === 'submitted' && (
-        <>
-          <button onClick={onLogOutcome} className={`${btn} bg-teal text-white`}><ClipboardCheck size={14} /> Log Outcome</button>
-          <button onClick={onPrint} className={`${btn} border border-gray-300 text-text-strong`}><FileDown size={14} /> Generate PDF</button>
-        </>
-      )}
-      {(status === 'paid' || status === 'denied' || status === 'pended') && (
-        <button onClick={onPrint} className={`${btn} border border-gray-300 text-text-strong`}><FileDown size={14} /> Generate PDF</button>
-      )}
-    </div>
-  )
-}
-
-function OutcomeBanner({ claim }) {
-  const cls = claim.outcome === 'paid' ? 'bg-success/10 border-success/40 text-success' :
-              claim.outcome === 'denied' ? 'bg-danger/10 border-danger/40 text-danger' :
-              'bg-warning/10 border-warning/40 text-yellow-800'
-  return (
-    <div className={`border rounded-md p-4 ${cls}`}>
-      <div className="flex items-start gap-2">
-        {claim.outcome === 'paid' ? <Check size={18} className="mt-0.5" /> : <AlertTriangle size={18} className="mt-0.5" />}
-        <div>
-          <div className="font-semibold capitalize">{claim.outcome}{claim.outcome_date ? ` on ${formatDate(claim.outcome_date)}` : ''}</div>
-          {claim.denial_reason && <div className="text-sm">Reason: {claim.denial_reason}</div>}
-          {claim.denial_notes && <div className="text-sm opacity-80 mt-1">{claim.denial_notes}</div>}
-        </div>
-      </div>
     </div>
   )
 }
@@ -291,7 +671,7 @@ function SubmitModal({ claim, onCancel, onConfirm }) {
       <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6">
         <h3 className="text-lg font-semibold text-text-strong">Mark as Submitted</h3>
         <p className="text-sm text-text-muted mt-1">When was this claim submitted to the payer?</p>
-        <input type="date" value={date} onChange={e => setDate(e.target.value)}
+        <DateField value={date} onChange={e => setDate(e.target.value)}
           className="mt-3 w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
         <div className="flex justify-end gap-2 mt-5">
           <button onClick={onCancel} className="px-4 py-2 text-sm border border-gray-300 rounded-md text-text-muted hover:bg-gray-50">Cancel</button>
@@ -425,7 +805,7 @@ async function runDenialFeedback({ newClaim, allClaims, requirements, saveRequir
 
 function Section({ title, children }) {
   return (
-    <section className="bg-white border border-gray-200 rounded-lg p-5">
+    <section className="bg-white border border-border-warm rounded-lg p-5">
       <h2 className="text-sm font-semibold uppercase tracking-wider text-text-muted mb-3">{title}</h2>
       <div>{children}</div>
     </section>
@@ -433,14 +813,114 @@ function Section({ title, children }) {
 }
 
 function Grid({ children }) {
-  return <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">{children}</div>
+  return <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 text-sm">{children}</div>
 }
 
-function Item({ label, children, full }) {
+function HeaderStat({ label, children }) {
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-[0.16em] text-text-muted">{label}</div>
+      <div className="text-text-strong text-sm mt-1 leading-snug">{children}</div>
+    </div>
+  )
+}
+
+function EditHint() {
+  return <span className="text-[10px] uppercase tracking-[0.16em] text-text-muted/70 ml-1">— click any field to edit</span>
+}
+
+// ---------- Inline-editable field primitives ----------
+//
+// These look like plain text by default. Hover or focus reveals a soft border /
+// cream background so the user knows the field is editable; tabbing in keeps the
+// input as plain text (no popups). Saves are debounced to blur (text/textarea)
+// or fire on change (date/checkbox).
+
+const inlineFieldCls =
+  'w-full px-2 py-1 text-sm bg-transparent border border-transparent rounded transition-colors ' +
+  'hover:bg-cream-light hover:border-border-warm ' +
+  'focus:bg-white focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/30'
+
+const inlineDateCls = inlineFieldCls + ' max-w-[180px]'
+
+function EditableItem({ label, value, onSave, type = 'text', placeholder, suffix, multiline, full }) {
+  const [draft, setDraft] = useState(value ?? '')
+  // Re-sync local draft if the upstream value changes (e.g. saved from another control).
+  useEffect(() => { setDraft(value ?? '') }, [value])
+
+  const onBlur = () => {
+    const next = draft
+    if ((value ?? '') !== next) onSave(next)
+  }
+
   return (
     <div className={full ? 'md:col-span-2' : ''}>
-      <div className="text-xs text-text-muted">{label}</div>
-      <div className="text-text-strong">{children}</div>
+      <div className="text-xs text-text-muted mb-1">{label}</div>
+      <div className="relative flex items-center">
+        {multiline ? (
+          <textarea
+            rows={3}
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onBlur={onBlur}
+            placeholder={placeholder}
+            className={inlineFieldCls + ' resize-y'}
+          />
+        ) : (
+          <input
+            type={type}
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onBlur={onBlur}
+            placeholder={placeholder}
+            className={inlineFieldCls + (suffix ? ' pr-7' : '')}
+          />
+        )}
+        {suffix && !multiline && (
+          <span className="pointer-events-none absolute right-2 text-text-muted text-xs">{suffix}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function EditableDateItem({ label, value, onSave }) {
+  return (
+    <div>
+      <div className="text-xs text-text-muted mb-1">{label}</div>
+      <DateField
+        className={inlineDateCls}
+        value={value}
+        onChange={e => onSave(e.target.value)}
+      />
+    </div>
+  )
+}
+
+function InlineNarrative({ value, approved, onSave, onApprove }) {
+  const [draft, setDraft] = useState(value ?? '')
+  useEffect(() => { setDraft(value ?? '') }, [value])
+  const onBlur = () => {
+    if ((value ?? '') !== draft) onSave(draft)
+  }
+  return (
+    <div className="space-y-3">
+      <textarea
+        rows={Math.max(8, Math.min(20, (draft.match(/\n/g) || []).length + 6))}
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={onBlur}
+        placeholder="No narrative yet — paste or write one here. It saves automatically."
+        className={inlineFieldCls + ' font-serif text-base leading-relaxed resize-y min-h-[160px]'}
+      />
+      {!approved && draft.trim() && (
+        <button
+          onClick={onApprove}
+          className="px-3.5 py-1.5 text-sm bg-success text-white rounded-full hover:opacity-90"
+        >
+          Approve Narrative
+        </button>
+      )}
     </div>
   )
 }

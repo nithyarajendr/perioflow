@@ -8,6 +8,31 @@ const MODEL = 'claude-sonnet-4-6'
 const NARRATIVE_MAX_TOKENS = 1000
 const PARSE_MAX_TOKENS = 1500
 
+const REQUIREMENTS_SCHEMA = {
+  type: 'object',
+  properties: {
+    required_documents: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          item: { type: 'string' },
+          priority: { type: 'string', enum: ['required', 'recommended'] },
+          denial_risk: { type: 'string', enum: ['high', 'medium', 'low'] },
+        },
+        required: ['item', 'priority', 'denial_risk'],
+        additionalProperties: false,
+      },
+    },
+    narrative_elements: { type: 'array', items: { type: 'string' } },
+    watch_outs: { type: 'array', items: { type: 'string' } },
+    frequency_limit: { type: 'string' },
+    requires_pre_auth: { type: 'boolean' },
+  },
+  required: ['required_documents', 'narrative_elements', 'watch_outs', 'frequency_limit', 'requires_pre_auth'],
+  additionalProperties: false,
+}
+
 const CLINICAL_NOTES_SCHEMA = {
   type: 'object',
   properties: {
@@ -128,6 +153,42 @@ ${notesText}
   return { parsed }
 }
 
+export async function suggestRequirements({ payerName, code, description }) {
+  if (!payerName || typeof payerName !== 'string' ||
+      !code || typeof code !== 'string') {
+    const err = new Error('Missing required fields: payerName, code')
+    err.statusCode = 400
+    throw err
+  }
+  const prompt = `You are a dental insurance billing expert. For the payer ${payerName} and CDT procedure code ${code} (${description || 'no description provided'}), what documentation is typically required for a claim submission from an out-of-network periodontist? Return a JSON object with this exact structure: { required_documents: [{ item: string, priority: 'required' or 'recommended', denial_risk: 'high' or 'medium' or 'low' }], narrative_elements: [string array of what should be included in the narrative], watch_outs: [string array of common denial risks and things to watch for], frequency_limit: string or null, requires_pre_auth: boolean }. Be specific to this payer. Do not make up requirements. If you are uncertain about a specific payer's rules, say what is generally expected for this procedure and note the uncertainty. Return only valid JSON, no markdown, no explanation.`
+
+  const data = await callAnthropic({
+    model: MODEL,
+    max_tokens: 1500,
+    messages: [{ role: 'user', content: prompt }],
+    output_config: {
+      format: { type: 'json_schema', schema: REQUIREMENTS_SCHEMA },
+    },
+  })
+  const text = data?.content?.[0]?.text
+  if (!text) {
+    const err = new Error('Claude returned no content.')
+    err.statusCode = 502
+    throw err
+  }
+  let parsed
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    const err = new Error('Claude response was not valid JSON.')
+    err.statusCode = 502
+    throw err
+  }
+  // Pass-through frequency_limit: caller spec allows null but the schema
+  // forces a string; Claude returns "" or "Varies" in practice, both fine.
+  return { suggestion: parsed }
+}
+
 // Adapter that both Vercel `(req, res)` and the local dev server can use.
 export async function handle(operation, body, res) {
   try {
@@ -136,6 +197,8 @@ export async function handle(operation, body, res) {
       result = await generateNarrative(body || {})
     } else if (operation === 'parse-clinical-notes') {
       result = await parseClinicalNotes(body || {})
+    } else if (operation === 'suggest-requirements') {
+      result = await suggestRequirements(body || {})
     } else {
       res.statusCode = 404
       res.setHeader('Content-Type', 'application/json')

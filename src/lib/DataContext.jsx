@@ -29,6 +29,27 @@ async function seedIfEmpty() {
   return true
 }
 
+// Idempotent migration: if a returning user has CDT codes in storage from a
+// previous version that didn't carry `default_fee`, merge fees in from the
+// canonical seed without touching their other data (claims, payers,
+// fee schedule overrides, etc.).
+async function migrateCdtFees() {
+  const stored = await loadJson(KEYS.cdtCodes, [])
+  if (!Array.isArray(stored) || stored.length === 0) return false
+  const seedByCode = Object.fromEntries(SEED_CDT_CODES.map(c => [c.code, c]))
+  let changed = false
+  const next = stored.map(c => {
+    const seedFee = seedByCode[c.code]?.default_fee
+    if (c.default_fee == null && seedFee != null) {
+      changed = true
+      return { ...c, default_fee: seedFee }
+    }
+    return c
+  })
+  if (changed) await saveJson(KEYS.cdtCodes, next)
+  return changed
+}
+
 export function DataProvider({ children }) {
   const [loaded, setLoaded] = useState(false)
   const [payers, setPayers] = useState([])
@@ -59,7 +80,8 @@ export function DataProvider({ children }) {
     let cancelled = false
     async function bootstrap() {
       try {
-        await seedIfEmpty()
+        const seeded = await seedIfEmpty()
+        if (!seeded) await migrateCdtFees()  // returning users: backfill fees
         if (!cancelled) {
           await reload()
           setLoaded(true)
