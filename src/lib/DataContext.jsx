@@ -132,9 +132,14 @@ export function DataProvider({ children }) {
   }, [])
 
   const getFeeForCode = useCallback((code) => {
-    const v = feeSchedule[code]
-    return v == null || v === '' ? null : Number(v)
-  }, [feeSchedule])
+    // Practice-specific override (set in Settings → Fee Schedule) wins.
+    const override = feeSchedule[code]
+    if (override != null && override !== '') return Number(override)
+    // Fall back to the CDT code's seeded default_fee.
+    const cdt = cdtCodes.find(c => c.code === code)
+    if (cdt && cdt.default_fee != null) return Number(cdt.default_fee)
+    return null
+  }, [feeSchedule, cdtCodes])
 
   // ---- Data management ----
   const exportAll = useCallback(async () => {

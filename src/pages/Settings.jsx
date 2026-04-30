@@ -139,10 +139,12 @@ function FeeScheduleSection() {
     }
   }
 
+  const overrideCount = Object.values(feeSchedule).filter(v => v != null && v !== '').length
+
   return (
     <Section
       title="Fee Schedule"
-      description="Default fee per CDT code. Auto-fills when adding procedures to a new claim — you can still edit per-claim."
+      description="Each CDT code has a starting default fee. Set your practice fee to override it — auto-fills when adding procedures to a new claim. Leave blank to use the default."
     >
       <div className="flex items-center gap-2 mb-3">
         <DollarSign size={16} className="text-text-muted shrink-0" />
@@ -159,38 +161,61 @@ function FeeScheduleSection() {
             <tr>
               <th className="px-3 py-2 text-left w-24">Code</th>
               <th className="px-3 py-2 text-left">Description</th>
-              <th className="px-3 py-2 text-right w-36">Fee (USD)</th>
+              <th className="px-3 py-2 text-right w-24">Default</th>
+              <th className="px-3 py-2 text-right w-40">Your Fee</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {visible.map(c => (
-              <tr key={c.code} className="hover:bg-gray-50">
-                <td className="px-3 py-2 font-mono text-text-strong">{c.code}</td>
-                <td className="px-3 py-2 text-text-muted truncate max-w-md">{c.description}</td>
-                <td className="px-3 py-2">
-                  <div className="relative">
-                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted text-xs">$</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="—"
-                      value={draft[c.code] ?? ''}
-                      onChange={e => setDraft({ ...draft, [c.code]: e.target.value })}
-                      className="w-full pl-5 pr-2 py-1 border border-gray-300 rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal/40 focus:border-teal"
-                    />
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {visible.map(c => {
+              const defaultFee = c.default_fee
+              const draftVal = draft[c.code] ?? ''
+              const draftNum = draftVal === '' ? null : Number(draftVal)
+              const isOverridden = draftNum != null && Number.isFinite(draftNum) && draftNum !== defaultFee
+              return (
+                <tr key={c.code} className="hover:bg-gray-50">
+                  <td className="px-3 py-2 font-mono text-text-strong">{c.code}</td>
+                  <td className="px-3 py-2 text-text-muted truncate max-w-md">{c.description}</td>
+                  <td className="px-3 py-2 text-right text-text-muted whitespace-nowrap">
+                    {defaultFee != null ? `$${defaultFee}` : '—'}
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="relative">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted text-xs">$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder={defaultFee != null ? String(defaultFee) : '—'}
+                        value={draftVal}
+                        onChange={e => setDraft({ ...draft, [c.code]: e.target.value })}
+                        className={`w-full pl-5 pr-2 py-1 border rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal/40 ${isOverridden ? 'border-teal text-teal font-medium' : 'border-gray-300'}`}
+                      />
+                    </div>
+                    {isOverridden && (
+                      <button
+                        type="button"
+                        onClick={() => setDraft({ ...draft, [c.code]: '' })}
+                        className="block ml-auto mt-0.5 text-[11px] text-text-muted hover:text-navy"
+                      >
+                        Reset to default
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
             {visible.length === 0 && (
-              <tr><td colSpan={3} className="px-3 py-6 text-center text-text-muted">No codes match.</td></tr>
+              <tr><td colSpan={4} className="px-3 py-6 text-center text-text-muted">No codes match.</td></tr>
             )}
           </tbody>
         </table>
       </div>
       <div className="flex items-center justify-between mt-3">
-        <p className="text-xs text-text-muted">{Object.values(feeSchedule).filter(v => v != null && v !== '').length} of {cdtCodes.length} codes priced.</p>
+        <p className="text-xs text-text-muted">
+          {overrideCount === 0
+            ? 'Using default fees for all codes.'
+            : `${overrideCount} code${overrideCount === 1 ? '' : 's'} overridden — the rest use defaults.`}
+        </p>
         <button
           onClick={onSave}
           disabled={!dirty}

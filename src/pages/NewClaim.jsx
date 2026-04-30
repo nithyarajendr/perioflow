@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, Trash2, ChevronLeft, ChevronRight, AlertTriangle, CircleDot, Check, Loader2, Sparkles, ClipboardPaste } from 'lucide-react'
+import { Plus, Trash2, ChevronLeft, ChevronRight, AlertTriangle, CircleDot, Check, Loader2, Sparkles } from 'lucide-react'
 import { useData } from '../lib/DataContext'
 import { useToast } from '../components/Toast'
 import {
@@ -476,7 +476,6 @@ function SmartPaste({ claim, setClaim }) {
   const { show } = useToast()
   const [text, setText] = useState('')
   const [parsing, setParsing] = useState(false)
-  const [open, setOpen] = useState(false)
 
   const onParse = async () => {
     if (!text.trim()) return
@@ -512,7 +511,6 @@ function SmartPaste({ claim, setClaim }) {
 
       setClaim({ ...claim, clinical_findings: merged })
       setText('')
-      setOpen(false)
       show(filled.length ? `Filled ${filled.length} field${filled.length === 1 ? '' : 's'}: ${filled.join(', ')}` : 'No fields could be extracted from those notes', filled.length ? 'success' : 'warning')
     } catch (err) {
       show(err.message || 'Failed to parse notes', 'error')
@@ -521,26 +519,11 @@ function SmartPaste({ claim, setClaim }) {
     }
   }
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-dashed border-teal/50 bg-teal/5 text-teal rounded-md text-sm font-medium hover:bg-teal/10"
-      >
-        <ClipboardPaste size={16} /> Smart Paste — paste clinical notes and let Claude fill in the form
-      </button>
-    )
-  }
-
   return (
     <div className="border border-teal/40 bg-teal/5 rounded-md p-4">
-      <div className="flex items-center justify-between mb-2">
-        <h4 className="font-medium text-text-strong flex items-center gap-1.5">
-          <Sparkles size={14} className="text-teal" /> Smart Paste
-        </h4>
-        <button onClick={() => { setOpen(false); setText('') }} className="text-xs text-text-muted hover:text-text-strong">Cancel</button>
-      </div>
+      <h4 className="font-medium text-text-strong flex items-center gap-1.5 mb-2">
+        <Sparkles size={14} className="text-teal" /> Smart Paste
+      </h4>
       <p className="text-xs text-text-muted mb-2">
         Paste clinical notes from your charting software, EMR, or anywhere else. Claude will extract diagnosis, probing depths, BOP, bone loss, and other findings into the fields below. You can edit anything afterwards.
       </p>
@@ -551,8 +534,7 @@ function SmartPaste({ claim, setClaim }) {
         placeholder="Paste your clinical notes here…"
         className={inputCls + ' font-mono text-xs'}
       />
-      <div className="flex items-center justify-between gap-2 mt-2">
-        <span className="text-xs text-text-muted">Uses your private server key. If this fails, check your server environment setup.</span>
+      <div className="flex justify-end mt-2">
         <button
           onClick={onParse}
           disabled={parsing || !text.trim()}
