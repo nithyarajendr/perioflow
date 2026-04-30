@@ -41,7 +41,8 @@ export default function PrintView({ open, onClose, claim, payer, settings, cdtCo
               <div className="text-right">
                 <h2 className="text-lg font-semibold">Insurance Claim Documentation</h2>
                 <p className="text-xs text-text-muted">Generated {formatDate(new Date())}</p>
-                <p className="text-xs text-text-muted">Claim ID: <span className="font-mono">{claim.claim_id}</span></p>
+                <p className="text-xs text-text-muted">PerioFlow Tracking ID: <span className="font-mono">{claim.claim_id}</span></p>
+                <p className="text-[10px] text-text-muted/70 italic mt-0.5">Internal reference — not the payer's claim number</p>
               </div>
             </div>
           </header>

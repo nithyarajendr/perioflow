@@ -276,7 +276,8 @@ export default function ClaimDetail() {
                 {claim.patient_name || claim.claim_id}
               </h1>
               <p className="text-text-muted text-sm mt-1.5">
-                <span className="font-mono">{claim.claim_id}</span>
+                <span className="text-text-muted/80">PerioFlow tracking ID:</span>{' '}
+                <span className="font-mono text-text-strong" title="Internal tracking ID for this claim — not the payer's claim number">{claim.claim_id}</span>
                 <span className="mx-1.5">·</span>
                 created {formatDate(claim.created_at)}
                 {settings?.provider_name && (
