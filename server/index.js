@@ -40,6 +40,7 @@ const PORT = Number(process.env.PORT || 8787)
 const ROUTES = {
   '/api/generate-narrative': 'generate-narrative',
   '/api/parse-clinical-notes': 'parse-clinical-notes',
+  '/api/suggest-requirements': 'suggest-requirements',
 }
 
 function sendJson(res, status, body) {
@@ -83,10 +84,31 @@ const server = createServer(async (req, res) => {
 })
 
 server.listen(PORT, () => {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.warn('⚠️  ANTHROPIC_API_KEY is not set. Add it to .env.local — see .env.example.')
+  // Detect a missing OR obviously-fake key (placeholder text, wrong prefix,
+  // suspiciously short). Real Anthropic keys start with `sk-ant-` and are
+  // ~108 chars. This check would have caught the .env.local placeholder
+  // bug — surfaces it loudly so the user sees it in the terminal before
+  // hitting confused 502s in the browser.
+  const key = process.env.ANTHROPIC_API_KEY
+  const looksLikePlaceholder =
+    !key ||
+    key === 'sk-ant-...' ||
+    key === 'your-key-here' ||
+    !key.startsWith('sk-ant-') ||
+    key.length < 50
+
+  if (looksLikePlaceholder) {
+    console.warn('')
+    console.warn('  ⚠️  ANTHROPIC_API_KEY in .env.local is missing or invalid.')
+    console.warn('     Edit .env.local to set a real key:')
+    console.warn('       ANTHROPIC_API_KEY=sk-ant-api03-…your-key-here…')
+    console.warn('     Get one at https://console.anthropic.com → Settings → API Keys.')
+    console.warn('     AI features will not work until this is fixed.')
+    console.warn('')
   }
+
   console.log(`PerioFlow API server listening on http://localhost:${PORT}`)
   console.log('  POST /api/generate-narrative')
   console.log('  POST /api/parse-clinical-notes')
+  console.log('  POST /api/suggest-requirements')
 })

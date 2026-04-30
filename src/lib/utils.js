@@ -116,7 +116,14 @@ export function getRequirementsForClaim(claim, requirements, cdtCodes) {
 }
 
 export function computeHealthScore(claim, requirementGroups) {
-  // Flatten checklist - claim.checklist is array of checked item strings
+  // If any group hasn't resolved yet (AI loading or errored), the requirements
+  // can't be evaluated — return null and let the UI render a loading/error
+  // state instead of a misleading "Ready to submit" green.
+  const unresolved = (requirementGroups || []).some(
+    g => g.source === 'ai-loading' || g.source === 'ai-error'
+  )
+  if (unresolved) return null
+
   const checked = new Set(claim.checklist || [])
   let requiredCount = 0, requiredChecked = 0
   let recommendedCount = 0, recommendedChecked = 0

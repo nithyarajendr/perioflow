@@ -1,21 +1,22 @@
 import { useMemo, useState } from 'react'
-import { ChevronUp, ChevronDown, BarChart3 } from 'lucide-react'
+import { ChevronUp, ChevronDown, BarChart3, AlertTriangle } from 'lucide-react'
 import { useData } from '../lib/DataContext'
 
 export default function DenialInsights() {
   const { claims, payers } = useData()
 
   const aggregate = useMemo(() => buildAggregate(claims, payers), [claims, payers])
+  const alerts = useMemo(() => computeDenialAlerts(claims, payers), [claims, payers])
 
   if (aggregate.totalWithOutcome === 0) {
     return (
       <div className="space-y-6">
         <header>
-          <h1 className="text-2xl font-semibold text-text-strong">Denial Insights</h1>
+          <h1 className="font-serif text-3xl text-text-strong">Denial Insights</h1>
           <p className="text-text-muted mt-1">Analytics on submitted claim outcomes.</p>
         </header>
-        <div className="bg-white border border-gray-200 rounded-lg p-12 text-center">
-          <BarChart3 className="mx-auto text-gray-300 mb-3" size={40} />
+        <div className="bg-white border border-border-warm rounded-lg p-12 text-center">
+          <BarChart3 className="mx-auto text-text-muted/50 mb-3" size={40} />
           <p className="text-text-strong font-medium">No claim outcomes logged yet</p>
           <p className="text-sm text-text-muted mt-1">Submit claims and log their outcomes to see denial patterns.</p>
         </div>
@@ -26,9 +27,31 @@ export default function DenialInsights() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold text-text-strong">Denial Insights</h1>
+        <h1 className="font-serif text-3xl text-text-strong">Denial Insights</h1>
         <p className="text-text-muted mt-1">Analytics on submitted claim outcomes.</p>
       </header>
+
+      {/* === High-rate denial alerts (moved from Dashboard).
+          Surfaces payer + procedure combinations with >30% denial rate. === */}
+      {alerts.length > 0 && (
+        <section>
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted mb-2">High denial-rate alerts</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {alerts.map((a, i) => (
+              <div key={i} className="flex items-start gap-2.5 p-4 border border-warning/40 bg-warning/10 rounded-lg text-sm">
+                <AlertTriangle size={18} className="shrink-0 mt-0.5 text-warning" />
+                <div className="min-w-0">
+                  <div className="font-medium text-text-strong">
+                    {a.payerName} + {a.code}: {Math.round(a.rate * 100)}% denial rate
+                    <span className="text-text-muted font-normal"> ({a.denied} of {a.total} claims)</span>
+                  </div>
+                  {a.topReason && <div className="text-xs text-text-muted mt-1">Most common reason: {a.topReason}</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard label="Total Denials" value={aggregate.totalDenied} />
@@ -198,4 +221,36 @@ function buildAggregate(claims, payers) {
     byPayer,
     breakdown,
   }
+}
+
+// Surfaces payer + procedure combinations with >30% denial rate (and at least
+// one denial). Previously rendered on the Dashboard; lives here now since this
+// is the analytics surface.
+function computeDenialAlerts(claims, payers) {
+  const buckets = new Map()
+  for (const c of claims) {
+    if (!c.outcome) continue
+    for (const proc of c.procedures || []) {
+      if (!proc.cdt_code) continue
+      const key = `${c.payer_id}__${proc.cdt_code}`
+      if (!buckets.has(key)) buckets.set(key, { payerId: c.payer_id, code: proc.cdt_code, total: 0, denied: 0, reasons: {} })
+      const b = buckets.get(key)
+      b.total += 1
+      if (c.outcome === 'denied') {
+        b.denied += 1
+        const reason = c.denial_reason || 'Unknown'
+        b.reasons[reason] = (b.reasons[reason] || 0) + 1
+      }
+    }
+  }
+  const out = []
+  for (const b of buckets.values()) {
+    const rate = b.total > 0 ? b.denied / b.total : 0
+    if (rate > 0.3 && b.denied > 0) {
+      const topReason = Object.entries(b.reasons).sort((a, b) => b[1] - a[1])[0]?.[0]
+      const payer = payers.find(p => p.payer_id === b.payerId)
+      out.push({ payerName: payer?.name || b.payerId, code: b.code, rate, denied: b.denied, total: b.total, topReason })
+    }
+  }
+  return out.sort((a, b) => b.rate - a.rate)
 }
