@@ -23,6 +23,7 @@ import RequirementsChecklist from '../components/RequirementsChecklist'
 import CostCalculatorCard from '../components/CostCalculatorCard'
 import ConfirmDialog from '../components/ConfirmDialog'
 import UnsavedChangesDialog from '../components/UnsavedChangesDialog'
+import WatchOutsSection from '../components/WatchOutsSection'
 import { emptyCostEstimate, hasCostEstimateData } from '../lib/cost'
 import { useResolvedRequirements } from '../lib/useResolvedRequirements'
 import { useUnsavedChangesGuard } from '../lib/useUnsavedChangesGuard'
@@ -842,8 +843,9 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
 
       {/* === Clinical Narrative (after watch-outs) === Always shows the
           textarea + a prominent Generate / Regenerate button so the AI entry
-          point is never hidden behind a branch. */}
-      <section>
+          point is never hidden behind a branch. The id is the smooth-scroll
+          target for the health card's "Narrative: Not yet written" link. */}
+      <section id="narrative" className="scroll-mt-20">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-serif text-xl text-text-strong">Clinical Narrative</h3>
           {claim.narrative_approved && (
@@ -882,41 +884,6 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
         </div>
       </section>
     </div>
-  )
-}
-
-// Watch-outs collapse/expand as a single unit. Header shows the count and
-// a chevron; clicking either toggles the body. Defaults to expanded so
-// first-time viewers see the warnings, but the user can collapse to clean
-// up the page once they've reviewed.
-function WatchOutsSection({ items }) {
-  const [open, setOpen] = useState(true)
-  const Chevron = open ? ChevronUp : ChevronDown
-  return (
-    <section className="border border-warning/40 bg-warning/10 rounded-lg overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        aria-expanded={open}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-warning/15 transition-colors"
-      >
-        <AlertTriangle size={18} className="text-warning shrink-0" />
-        <h3 className="font-serif text-lg text-text-strong flex-1">
-          Watch-outs <span className="text-text-muted text-sm font-sans">({items.length} item{items.length === 1 ? '' : 's'})</span>
-        </h3>
-        <Chevron size={18} className="text-text-muted shrink-0" />
-      </button>
-      {open && (
-        <div className="px-4 pb-4 pt-1 space-y-2 border-t border-warning/30">
-          {items.map((w, i) => (
-            <div key={i} className="flex items-start gap-2 text-sm text-text-strong pt-2">
-              <span className="text-warning shrink-0 mt-0.5">•</span>
-              <span>{w}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
   )
 }
 
