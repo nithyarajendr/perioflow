@@ -49,6 +49,7 @@ export default function CostEstimatePrintView({ open, onClose, patientName, proc
               </div>
               <div className="text-right">
                 <h2 className="font-serif text-xl">Patient Cost Estimate</h2>
+                <p className="text-[10px] text-text-muted/70 italic mt-0.5">From the Cost Calculator</p>
                 <p className="text-xs text-text-muted">Generated {formatDate(new Date())}</p>
               </div>
             </div>
