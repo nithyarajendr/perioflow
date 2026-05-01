@@ -15,7 +15,7 @@ import { useData } from '../lib/DataContext'
  */
 // Default export — renders all three sub-pieces stacked.
 // Used by the wizard's review step (one logical block).
-export default function RequirementsChecklist({ groups, checked, onToggle, score, readOnly = false, onSaveAi, onRetryAi }) {
+export default function RequirementsChecklist({ groups, checked, onToggle, breakdown, readOnly = false, onSaveAi, onRetryAi }) {
   if (!groups || groups.length === 0) {
     return (
       <div className="bg-white border border-border-warm rounded-lg p-6 text-center text-text-muted">
@@ -25,7 +25,7 @@ export default function RequirementsChecklist({ groups, checked, onToggle, score
   }
   return (
     <div className="space-y-4">
-      <RequirementsHealthSection groups={groups} checked={checked} score={score} />
+      <RequirementsHealthSection groups={groups} checked={checked} breakdown={breakdown} />
       <RequirementsListSection
         groups={groups}
         checked={checked}
@@ -41,14 +41,12 @@ export default function RequirementsChecklist({ groups, checked, onToggle, score
 // === Subparts (named exports) — used by Claim Detail to split the two
 // pieces with separate TOC anchors. ===
 
-export function RequirementsHealthSection({ groups, checked, score }) {
+export function RequirementsHealthSection({ groups, checked, breakdown }) {
   if (!groups || groups.length === 0) return null
   const stats = computeChecklistStats(groups, checked)
   return (
     <HealthScoreCard
-      score={score}
-      requiredChecked={stats.requiredChecked}
-      totalRequired={stats.requiredItems.length}
+      breakdown={breakdown}
       anyLoading={stats.anyLoading}
       anyError={stats.anyError}
     />
@@ -90,7 +88,7 @@ function computeChecklistStats(groups, checked) {
   return { requiredItems, requiredChecked, anyLoading, anyError }
 }
 
-function HealthScoreCard({ score, requiredChecked, totalRequired, anyLoading, anyError }) {
+function HealthScoreCard({ breakdown, anyLoading, anyError }) {
   if (anyLoading) {
     return (
       <div className="flex items-start gap-4 p-6 rounded-xl border-2 bg-teal/10 border-teal/40">
@@ -121,44 +119,72 @@ function HealthScoreCard({ score, requiredChecked, totalRequired, anyLoading, an
     )
   }
 
-  const config = {
-    green: {
-      cls: 'bg-success/10 border-success/50',
-      iconCls: 'text-success',
-      Icon: CheckCircle2,
-      title: 'Ready to submit',
-      desc: 'All required documents are checked off and the narrative is approved.',
-    },
-    yellow: {
-      cls: 'bg-warning/10 border-warning/50',
-      iconCls: 'text-warning',
-      Icon: AlertTriangle,
-      title: 'Almost ready',
-      desc: 'Required documents are ready. A few recommended items are still unchecked.',
-    },
-    red: {
-      cls: 'bg-danger/10 border-danger/50',
-      iconCls: 'text-danger',
-      Icon: AlertOctagon,
-      title: 'Action required',
-      desc: totalRequired > 0
-        ? `${totalRequired - requiredChecked} required item${totalRequired - requiredChecked === 1 ? '' : 's'} unchecked${requiredChecked > 0 ? ' — ' + requiredChecked + ' done' : ''}, and the narrative needs to be approved.`
-        : 'Approve the narrative before submitting.',
-    },
-  }[score] || null
+  if (!breakdown || !breakdown.status) return null
 
-  if (!config) return null
-  const { Icon } = config
+  const {
+    status,
+    requiredCount, requiredChecked,
+    recommendedCount, recommendedChecked,
+    narrativeApproved, narrativePresent,
+  } = breakdown
 
+  const headerConfig = {
+    green: { cls: 'bg-success/10 border-success/50', iconCls: 'text-success', Icon: CheckCircle2, title: 'Ready to submit' },
+    yellow: { cls: 'bg-warning/10 border-warning/50', iconCls: 'text-warning', Icon: AlertTriangle, title: 'Almost there' },
+    red: { cls: 'bg-danger/10 border-danger/50', iconCls: 'text-danger', Icon: AlertOctagon, title: 'Action required' },
+  }[status]
+
+  // Documentation status line — broken out from the narrative line so it's
+  // obvious which is done and which is blocking.
+  const allRequiredChecked = requiredCount === 0 || requiredChecked === requiredCount
+  const recommendedRemaining = Math.max(0, recommendedCount - recommendedChecked)
+  let docText
+  if (allRequiredChecked && recommendedRemaining === 0) {
+    docText = `Documentation: ${requiredChecked} of ${requiredCount} required items checked${recommendedCount > 0 ? ' · all recommended items checked' : ''}`
+  } else if (allRequiredChecked) {
+    docText = `Documentation: ${requiredChecked} of ${requiredCount} required items checked · ${recommendedRemaining} recommended unchecked`
+  } else {
+    const missing = requiredCount - requiredChecked
+    docText = `Documentation: ${requiredChecked} of ${requiredCount} required items checked — ${missing} more needed`
+  }
+  const DocIcon = allRequiredChecked ? CheckCircle2 : AlertOctagon
+  const docIconCls = allRequiredChecked ? 'text-success' : 'text-danger'
+
+  // Narrative status — independent indicator.
+  let narrativeText, NarrativeIcon, narrativeIconCls
+  if (narrativeApproved) {
+    narrativeText = 'Narrative: Approved'
+    NarrativeIcon = CheckCircle2
+    narrativeIconCls = 'text-success'
+  } else if (narrativePresent) {
+    narrativeText = 'Narrative: Not yet approved'
+    NarrativeIcon = AlertTriangle
+    narrativeIconCls = 'text-warning'
+  } else {
+    narrativeText = 'Narrative: Not yet written'
+    NarrativeIcon = AlertTriangle
+    narrativeIconCls = 'text-warning'
+  }
+
+  const { Icon } = headerConfig
   return (
-    <div className={`flex items-start gap-4 p-6 rounded-xl border-2 ${config.cls}`}>
-      <div className={`shrink-0 ${config.iconCls}`}>
+    <div className={`flex items-start gap-4 p-6 rounded-xl border-2 ${headerConfig.cls}`}>
+      <div className={`shrink-0 ${headerConfig.iconCls}`}>
         <Icon size={42} strokeWidth={1.4} />
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted">Claim Health Score</p>
-        <h2 className={`font-serif text-2xl mt-1 ${config.iconCls}`}>{config.title}</h2>
-        <p className="text-sm text-text-strong/85 mt-1.5 leading-relaxed">{config.desc}</p>
+        <h2 className={`font-serif text-2xl mt-1 ${headerConfig.iconCls}`}>{headerConfig.title}</h2>
+        <ul className="mt-3 space-y-2 text-sm">
+          <li className="flex items-start gap-2">
+            <DocIcon size={16} className={`shrink-0 mt-0.5 ${docIconCls}`} />
+            <span className="text-text-strong">{docText}</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <NarrativeIcon size={16} className={`shrink-0 mt-0.5 ${narrativeIconCls}`} />
+            <span className="text-text-strong">{narrativeText}</span>
+          </li>
+        </ul>
       </div>
     </div>
   )

@@ -82,10 +82,19 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
             </div>
           </Field>
 
-          <Field label="How does this plan classify periodontal procedures?" hint="Major vs basic can change reimbursement significantly.">
+          <Field label="How does this plan classify periodontal procedures?" hint="Major vs basic can change reimbursement significantly. Picking one will pre-fill the OON reimbursement rate above; you can still edit it.">
             <select
               value={inputs.perio_classification || 'unknown'}
-              onChange={e => update({ perio_classification: e.target.value })}
+              onChange={e => {
+                const next = e.target.value
+                // Picking Basic / Major auto-fills the OON reimbursement rate
+                // with the typical percentage for that classification. Picking
+                // Unknown leaves the rate alone. The user can still override.
+                const patch = { perio_classification: next }
+                if (next === 'basic') patch.oon_reimbursement_pct = 80
+                else if (next === 'major') patch.oon_reimbursement_pct = 50
+                update(patch)
+              }}
               disabled={readOnly}
               className={inputCls}
             >

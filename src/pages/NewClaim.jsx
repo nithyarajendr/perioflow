@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, Trash2, ChevronLeft, ChevronRight, AlertTriangle, Check, Loader2, Sparkles, RefreshCw } from 'lucide-react'
+import { Plus, Trash2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, AlertTriangle, Check, X, Loader2, Sparkles, RefreshCw } from 'lucide-react'
 import { useData } from '../lib/DataContext'
 import { useToast } from '../components/Toast'
 import {
@@ -9,7 +9,7 @@ import {
   BONE_LOSS_SUGGESTIONS,
   checkBundlingConflicts,
   getRequirementsForClaim,
-  computeHealthScore,
+  computeHealthBreakdown,
   buildNarrativePrompt,
   todayIso,
   formatDate,
@@ -719,7 +719,8 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
     setClaim({ ...claim, checklist: Array.from(next) })
   }
 
-  const score = computeHealthScore(claim, requirementGroups)
+  const breakdown = computeHealthBreakdown(claim, requirementGroups)
+  const score = breakdown.status
   const allWatchOuts = [...new Set(requirementGroups.flatMap(g => g.watch_outs))]
 
   const onGenerate = async () => {
@@ -742,25 +743,44 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
     show('Narrative approved', 'success')
   }
 
+  // Mark-as-Ready click handler — green skips the modal, yellow asks the
+  // user to confirm because some recommended items are still unchecked.
+  // Red is disabled at the button level so this never runs for it.
+  const [confirmReady, setConfirmReady] = useState(false)
+  const onMarkReadyClick = () => {
+    if (score === 'green') {
+      onMarkReady()
+    } else if (score === 'yellow') {
+      setConfirmReady(true)
+    }
+  }
+
   return (
     <div className="space-y-8">
-      {/* === Top summary bar: prominent Total Fee + always-available Save as Draft === */}
-      <div className="flex items-center justify-between gap-4 px-5 py-4 bg-white border border-border-warm rounded-lg">
-        <div>
-          <div className="text-[11px] uppercase tracking-[0.18em] text-text-muted">Total Fee</div>
-          <div className="font-serif text-3xl text-text-strong leading-tight mt-0.5">${totalFee.toFixed(2)}</div>
+      {/* === Top summary bar: very prominent Total Fee + always-available
+           Save as Draft. Card-style banner with teal accent so the dollar
+           figure is the first thing the eye lands on. === */}
+      <div className="flex items-center justify-between gap-6 px-6 py-6 bg-gradient-to-br from-navy to-navy/90 text-cream-light rounded-xl shadow-md flex-wrap">
+        <div className="min-w-0">
+          <div className="text-[11px] uppercase tracking-[0.22em] text-cream-light/70 font-semibold">Total Fee</div>
+          <div className="font-serif text-5xl sm:text-6xl text-cream-light leading-none mt-2 tabular-nums">
+            ${totalFee.toFixed(2)}
+          </div>
+          <div className="text-xs text-cream-light/60 mt-2">
+            {(claim.procedures || []).filter(p => p.cdt_code).length} procedure{(claim.procedures || []).filter(p => p.cdt_code).length === 1 ? '' : 's'}
+          </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap shrink-0">
           <button
             onClick={onSaveDraft}
-            className="px-4 py-2 text-sm border border-border-warm rounded-full text-text-strong hover:bg-cream-light"
+            className="px-4 py-2.5 text-sm border border-cream-light/40 rounded-full text-cream-light hover:bg-cream-light/10"
           >
             Save as Draft
           </button>
           <button
-            onClick={onMarkReady}
-            disabled={score !== 'green'}
-            className="px-4 py-2 text-sm bg-navy text-cream-light rounded-full hover:opacity-90 disabled:opacity-40"
+            onClick={onMarkReadyClick}
+            disabled={score === 'red' || !score}
+            className="px-5 py-2.5 text-sm bg-teal text-white font-medium rounded-full hover:opacity-90 disabled:opacity-40"
           >
             Mark as Ready
           </button>
@@ -786,7 +806,7 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
           groups={requirementGroups}
           checked={checked}
           onToggle={toggleItem}
-          score={score}
+          breakdown={breakdown}
           onSaveAi={saveAi}
           onRetryAi={retryAi}
         />
@@ -801,20 +821,20 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
         onCancel={() => setConfirmRefresh(false)}
         onConfirm={onRefreshRequirements}
       />
+      <ConfirmDialog
+        open={confirmReady}
+        title="Submit anyway?"
+        message="Some recommended items are still unchecked. Submit anyway?"
+        confirmLabel="Mark as Ready"
+        onCancel={() => setConfirmReady(false)}
+        onConfirm={() => { setConfirmReady(false); onMarkReady() }}
+      />
 
-      {/* === Watch-outs (after the checklist) === */}
+      {/* === Watch-outs — single collapsible section. Default open so the
+           user sees them on first arrival, but can collapse to clean up the
+           page once they've reviewed. === */}
       {allWatchOuts.length > 0 && (
-        <section>
-          <h3 className="font-serif text-xl text-text-strong mb-3">Watch-outs</h3>
-          <div className="space-y-2">
-            {allWatchOuts.map((w, i) => (
-              <div key={i} className="flex items-start gap-2 p-3.5 border border-warning/40 bg-warning/10 rounded-md text-sm text-text-strong">
-                <AlertTriangle size={16} className="shrink-0 mt-0.5 text-warning" />
-                <span>{w}</span>
-              </div>
-            ))}
-          </div>
-        </section>
+        <WatchOutsSection items={allWatchOuts} />
       )}
 
       {/* === Patient Cost Calculator — collapsed by default; auto-expands when data present === */}
@@ -871,8 +891,8 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
         <div className="flex gap-2">
           <button onClick={onSaveDraft} className="px-4 py-2 text-sm border border-border-warm rounded-full text-text-strong hover:bg-cream-light">Save as Draft</button>
           <button
-            onClick={onMarkReady}
-            disabled={score !== 'green'}
+            onClick={onMarkReadyClick}
+            disabled={score === 'red' || !score}
             className="px-4 py-2 text-sm bg-navy text-cream-light rounded-full hover:opacity-90 disabled:opacity-40"
           >
             Mark as Ready
@@ -880,6 +900,41 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
         </div>
       </div>
     </div>
+  )
+}
+
+// Watch-outs collapse/expand as a single unit. Header shows the count and
+// a chevron; clicking either toggles the body. Defaults to expanded so
+// first-time viewers see the warnings, but the user can collapse to clean
+// up the page once they've reviewed.
+function WatchOutsSection({ items }) {
+  const [open, setOpen] = useState(true)
+  const Chevron = open ? ChevronUp : ChevronDown
+  return (
+    <section className="border border-warning/40 bg-warning/10 rounded-lg overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-warning/15 transition-colors"
+      >
+        <AlertTriangle size={18} className="text-warning shrink-0" />
+        <h3 className="font-serif text-lg text-text-strong flex-1">
+          Watch-outs <span className="text-text-muted text-sm font-sans">({items.length} item{items.length === 1 ? '' : 's'})</span>
+        </h3>
+        <Chevron size={18} className="text-text-muted shrink-0" />
+      </button>
+      {open && (
+        <div className="px-4 pb-4 pt-1 space-y-2 border-t border-warning/30">
+          {items.map((w, i) => (
+            <div key={i} className="flex items-start gap-2 text-sm text-text-strong pt-2">
+              <span className="text-warning shrink-0 mt-0.5">•</span>
+              <span>{w}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   )
 }
 
