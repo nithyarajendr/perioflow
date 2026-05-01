@@ -23,6 +23,7 @@ import RequirementsChecklist from '../components/RequirementsChecklist'
 import CostCalculatorCard from '../components/CostCalculatorCard'
 import ConfirmDialog from '../components/ConfirmDialog'
 import UnsavedChangesDialog from '../components/UnsavedChangesDialog'
+import SectionTOC from '../components/SectionTOC'
 import { emptyCostEstimate, hasCostEstimateData } from '../lib/cost'
 import { useResolvedRequirements } from '../lib/useResolvedRequirements'
 import { useUnsavedChangesGuard } from '../lib/useUnsavedChangesGuard'
@@ -670,6 +671,19 @@ function SmartPaste({ claim, setClaim }) {
 
 // ---------- Step 4 ----------
 
+// TOC items for the wizard's Review step. Same component and look as the
+// Claim Detail page so users get a consistent affordance. Watch-outs is
+// only included when there's at least one to show.
+function wizardTocSections(hasWatchOuts) {
+  const items = [
+    { id: 'cost-estimate', label: 'Cost Calculator' },
+    { id: 'claim-health-score', label: 'Documentation' },
+  ]
+  if (hasWatchOuts) items.push({ id: 'watch-outs', label: 'Watch-outs' })
+  items.push({ id: 'narrative', label: 'Narrative' })
+  return items
+}
+
 function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
   const { cdtCodes, getPayer } = useData()
   const { show } = useToast()
@@ -781,12 +795,18 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
       </div>
 
       {/* === Patient Cost Calculator banner — three big numbers always
-           visible (Total Fee / Est. Reimbursement / Est. Out-of-Pocket).
+           visible (Total Fee / Insurance Pays / Patient Pays).
            Click to expand the full input form + math breakdown. === */}
-      <ReviewCostEstimate claim={claim} setClaim={setClaim} />
+      <div id="cost-estimate" className="scroll-mt-20">
+        <ReviewCostEstimate claim={claim} setClaim={setClaim} />
+      </div>
+
+      {/* Sticky horizontal TOC for jumping between sections — same component
+          and look as Claim Detail so users get a consistent affordance. */}
+      <SectionTOC sections={wizardTocSections(allWatchOuts.length > 0)} />
 
       {/* === Requirements Checklist (most prominent — health score + progress + items) === */}
-      <div className="space-y-3">
+      <div id="claim-health-score" className="scroll-mt-20 space-y-3">
         {claim.requirements_snapshot && (
           <div className="flex items-center justify-between gap-3 flex-wrap px-1">
             <span className="text-xs text-text-muted">
@@ -832,13 +852,15 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
            user sees them on first arrival, but can collapse to clean up the
            page once they've reviewed. === */}
       {allWatchOuts.length > 0 && (
-        <WatchOutsSection items={allWatchOuts} />
+        <div id="watch-outs" className="scroll-mt-20">
+          <WatchOutsSection items={allWatchOuts} />
+        </div>
       )}
 
       {/* === Clinical Narrative (after watch-outs) === Always shows the
           textarea + a prominent Generate / Regenerate button so the AI entry
           point is never hidden behind a branch. */}
-      <section>
+      <section id="narrative" className="scroll-mt-20">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-serif text-xl text-text-strong">Clinical Narrative</h3>
           {claim.narrative_approved && (

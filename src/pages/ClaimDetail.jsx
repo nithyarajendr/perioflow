@@ -279,10 +279,10 @@ export default function ClaimDetail() {
     }
   }
 
-  // TOC sections — visible to scroll-spy in this exact order. The "Cost
-  // Estimate" entry appears after Clinical Findings to match the page order.
+  // TOC sections — order matches the page top-to-bottom. Patient & Insurance
+  // is the header itself, so it isn't a jump target (clicking it would scroll
+  // to the top, which is what the back button is for).
   const tocSections = [
-    { id: 'patient-insurance', label: 'Patient & Insurance' },
     { id: 'cost-estimate', label: 'Cost Calculator' },
     { id: 'claim-health-score', label: 'Claim Health Score' },
     { id: 'documentation-checklist', label: 'Documentation Checklist' },
