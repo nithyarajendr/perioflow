@@ -212,6 +212,18 @@ export function isSnapshotValid(claim) {
   return newCodes.every((c, i) => c === oldCodes[i])
 }
 
+// Auto-append "mm" to a probing depth value when the user finishes typing.
+// "5" → "5mm", "5-8" → "5-8mm". Pre-existing units, empty input, or values
+// without any digit are left alone.
+export function normalizeProbingDepth(text) {
+  if (text == null) return ''
+  const trimmed = String(text).trim()
+  if (!trimmed) return ''
+  if (!/\d/.test(trimmed)) return trimmed
+  if (/mm\s*$/i.test(trimmed)) return trimmed
+  return trimmed + 'mm'
+}
+
 // Snapshot constructor — keeps the shape consistent across wizard + detail.
 export function buildRequirementsSnapshot(claim, groups) {
   return {

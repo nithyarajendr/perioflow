@@ -15,11 +15,12 @@ import {
   formatDate,
   isSnapshotValid,
   buildRequirementsSnapshot,
+  normalizeProbingDepth,
 } from '../lib/utils'
 import { generateNarrative, parseClinicalNotes } from '../lib/api'
 import DateField from '../components/DateField'
 import RequirementsChecklist from '../components/RequirementsChecklist'
-import CostEstimatorPanel from '../components/CostEstimatorPanel'
+import CostCalculatorCard from '../components/CostCalculatorCard'
 import ConfirmDialog from '../components/ConfirmDialog'
 import UnsavedChangesDialog from '../components/UnsavedChangesDialog'
 import { emptyCostEstimate, hasCostEstimateData } from '../lib/cost'
@@ -534,6 +535,12 @@ function Step3({ claim, setClaim, validationAttempted }) {
                 placeholder="e.g., 5-8mm"
                 value={cf.probing_depths[q.clinicalKey]}
                 onChange={e => setCf({ probing_depths: { ...cf.probing_depths, [q.clinicalKey]: e.target.value } })}
+                onBlur={e => {
+                  const normalized = normalizeProbingDepth(e.target.value)
+                  if (normalized !== e.target.value) {
+                    setCf({ probing_depths: { ...cf.probing_depths, [q.clinicalKey]: normalized } })
+                  }
+                }}
               />
             </label>
           ))}
@@ -545,12 +552,12 @@ function Step3({ claim, setClaim, validationAttempted }) {
         <div className="relative">
           <input
             type="number" min="0" max="100"
-            className={`${inputCls} pr-8 ${errCls('bop_percentage')}`}
+            className={`${inputCls} pr-12 ${errCls('bop_percentage')}`}
             placeholder="e.g., 82"
             value={cf.bop_percentage}
             onChange={e => setCf({ bop_percentage: e.target.value })}
           />
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted text-sm">%</span>
+          <span className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center px-2.5 py-1 rounded-md bg-teal/15 text-teal font-semibold text-base leading-none pointer-events-none">%</span>
         </div>
         {showErrors && errors.bop_percentage && <FieldError>{errors.bop_percentage}</FieldError>}
       </Field>
@@ -735,10 +742,6 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
     show('Narrative approved', 'success')
   }
 
-  const editNarrativeManually = () => {
-    setClaim({ ...claim, generated_narrative: claim.generated_narrative || '', narrative_approved: false })
-  }
-
   return (
     <div className="space-y-8">
       {/* === Top summary bar: prominent Total Fee + always-available Save as Draft === */}
@@ -814,10 +817,12 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
         </section>
       )}
 
-      {/* === Optional Cost Estimate — collapsed by default; auto-expands when data present === */}
+      {/* === Patient Cost Calculator — collapsed by default; auto-expands when data present === */}
       <ReviewCostEstimate claim={claim} setClaim={setClaim} />
 
-      {/* === Clinical Narrative (after watch-outs) === */}
+      {/* === Clinical Narrative (after watch-outs) === Always shows the
+          textarea + a prominent Generate / Regenerate button so the AI entry
+          point is never hidden behind a branch. */}
       <section>
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-serif text-xl text-text-strong">Clinical Narrative</h3>
@@ -827,45 +832,34 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
             </span>
           )}
         </div>
-        {!claim.generated_narrative && !generating && (
-          <div className="space-y-2">
+        <div className="space-y-2">
+          <textarea
+            className={inputCls + ' min-h-[200px] font-serif text-base leading-relaxed'}
+            value={claim.generated_narrative || ''}
+            onChange={e => setClaim({ ...claim, generated_narrative: e.target.value, narrative_approved: false })}
+            placeholder="Write or paste your clinical narrative here, or click Generate Narrative with Claude below."
+          />
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={onGenerate}
-              disabled={requirementGroups.length === 0}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-navy text-cream-light rounded-full text-sm font-medium hover:opacity-90 disabled:opacity-40"
+              disabled={generating}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-navy text-cream-light rounded-full text-sm font-medium hover:opacity-90 disabled:opacity-50"
             >
-              <Sparkles size={16} /> Generate Narrative with Claude
+              {generating
+                ? <><Loader2 size={16} className="animate-spin" /> Generating…</>
+                : <><Sparkles size={16} /> {claim.generated_narrative?.trim() ? 'Regenerate with Claude' : 'Generate Narrative with Claude'}</>}
             </button>
-            <button onClick={editNarrativeManually} className="ml-2 text-sm text-text-muted hover:text-text-strong">
-              or write manually
-            </button>
-          </div>
-        )}
-        {generating && (
-          <div className="flex items-center gap-2 text-sm text-text-muted">
-            <Loader2 className="animate-spin" size={16} /> Generating narrative…
-          </div>
-        )}
-        {(claim.generated_narrative || (!generating && claim.generated_narrative === '')) && !generating && (
-          <div className="space-y-2">
-            <textarea
-              className={inputCls + ' min-h-[200px] font-serif text-base leading-relaxed'}
-              value={claim.generated_narrative}
-              onChange={e => setClaim({ ...claim, generated_narrative: e.target.value, narrative_approved: false })}
-              placeholder="Write or paste your clinical narrative here…"
-            />
-            <div className="flex gap-2">
-              {!claim.narrative_approved && (
-                <button onClick={approveNarrative} disabled={!claim.generated_narrative.trim()} className="px-3.5 py-1.5 text-sm bg-success text-white rounded-full hover:opacity-90 disabled:opacity-40">
-                  Approve Narrative
-                </button>
-              )}
-              <button onClick={onGenerate} className="px-3.5 py-1.5 text-sm border border-border-warm text-text-strong rounded-full hover:bg-cream-light">
-                Regenerate
+            {!claim.narrative_approved && (
+              <button
+                onClick={approveNarrative}
+                disabled={!claim.generated_narrative?.trim() || generating}
+                className="px-3.5 py-2 text-sm bg-success text-white rounded-full hover:opacity-90 disabled:opacity-40"
+              >
+                Approve Narrative
               </button>
-            </div>
+            )}
           </div>
-        )}
+        </div>
       </section>
 
       {/* === Total + actions === */}
@@ -906,51 +900,18 @@ function FieldError({ children }) {
   return <p className="text-xs text-danger mt-1">{children}</p>
 }
 
-// Optional cost-estimate section on the Review step. Collapsed by default to
-// keep the main flow uncluttered; auto-expands when a saved estimate exists
-// (e.g. when editing a claim that already has one).
+// Patient Cost Calculator on the Review step — same shared card as Claim
+// Detail. Auto-opens when an estimate already exists (editing flow); blank
+// new claims start collapsed so the main flow stays scannable.
 function ReviewCostEstimate({ claim, setClaim }) {
   const { cdtCodes } = useData()
-  const initiallyOpen = hasCostEstimateData(claim.cost_estimate)
-  const [open, setOpen] = useState(initiallyOpen)
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 border border-dashed border-border-warm bg-cream-light/40 text-text-strong rounded-md text-sm hover:bg-cream-light"
-      >
-        <Plus size={16} className="text-teal" />
-        Add Cost Estimate <span className="text-text-muted">(optional)</span>
-      </button>
-    )
-  }
-
   return (
-    <section className="border border-border-warm rounded-lg p-5 bg-white">
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <h3 className="font-serif text-xl text-text-strong">Cost Estimate</h3>
-          <p className="text-xs text-text-muted mt-0.5">Optional — saves with the claim. Edit later from the Claim Detail page.</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            setOpen(false)
-            setClaim({ ...claim, cost_estimate: emptyCostEstimate() })
-          }}
-          className="text-xs text-text-muted hover:text-text-strong"
-        >
-          Remove
-        </button>
-      </div>
-      <CostEstimatorPanel
-        procedures={claim.procedures}
-        cdtCodes={cdtCodes}
-        value={claim.cost_estimate}
-        onChange={(next) => setClaim({ ...claim, cost_estimate: next })}
-      />
-    </section>
+    <CostCalculatorCard
+      procedures={claim.procedures}
+      cdtCodes={cdtCodes}
+      value={claim.cost_estimate || emptyCostEstimate()}
+      onChange={(next) => setClaim({ ...claim, cost_estimate: next })}
+      initiallyOpen={hasCostEstimateData(claim.cost_estimate)}
+    />
   )
 }

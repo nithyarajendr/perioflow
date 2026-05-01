@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Pencil, Trash2, Send, FileDown, ClipboardCheck, AlertTriangle, Check, Calculator, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Pencil, Trash2, Send, FileDown, ClipboardCheck, AlertTriangle, Check, RefreshCw, Sparkles, Loader2 } from 'lucide-react'
 import { useData } from '../lib/DataContext'
 import { useToast } from '../components/Toast'
 import StatusBadge from '../components/StatusBadge'
@@ -8,7 +8,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import PrintView from '../components/PrintView'
 import DateField from '../components/DateField'
 import { RequirementsHealthSection, RequirementsListSection } from '../components/RequirementsChecklist'
-import CostEstimatorPanel from '../components/CostEstimatorPanel'
+import CostCalculatorCard from '../components/CostCalculatorCard'
 import CostEstimatePrintView from '../components/CostEstimatePrintView'
 import SectionTOC from '../components/SectionTOC'
 import UnsavedChangesDialog from '../components/UnsavedChangesDialog'
@@ -21,10 +21,13 @@ import {
   QUADRANTS,
   isSnapshotValid,
   buildRequirementsSnapshot,
+  buildNarrativePrompt,
+  normalizeProbingDepth,
 } from '../lib/utils'
+import { generateNarrative } from '../lib/api'
 import { useResolvedRequirements } from '../lib/useResolvedRequirements'
 import { useUnsavedChangesGuard } from '../lib/useUnsavedChangesGuard'
-import { emptyCostEstimate, hasCostEstimateData } from '../lib/cost'
+import { emptyCostEstimate } from '../lib/cost'
 
 export default function ClaimDetail() {
   const { id } = useParams()
@@ -38,6 +41,7 @@ export default function ClaimDetail() {
   const [outcomeOpen, setOutcomeOpen] = useState(false)
   const [printOpen, setPrintOpen] = useState(false)
   const [costPrintOpen, setCostPrintOpen] = useState(false)
+  const [generatingNarrative, setGeneratingNarrative] = useState(false)
 
   const claim = claims.find(c => c.claim_id === id)
   const payer = claim ? getPayer(claim.payer_id) : null
@@ -149,6 +153,21 @@ export default function ClaimDetail() {
   const approveNarrative = () => {
     setDraft(d => ({ ...d, narrative_approved: true }))
   }
+
+  const onGenerateNarrative = async () => {
+    setGeneratingNarrative(true)
+    try {
+      const elements = (requirementGroups || []).flatMap(g => g.narrative_elements || [])
+      const prompt = buildNarrativePrompt({ claim: draft, payerName: payer?.name, narrativeElements: elements, cdtCodes })
+      const text = await generateNarrative({ prompt })
+      setDraft(d => ({ ...d, generated_narrative: text, narrative_approved: false }))
+      show('Narrative generated — review and approve', 'success')
+    } catch (err) {
+      show(err.message || 'Narrative generation failed', 'error')
+    } finally {
+      setGeneratingNarrative(false)
+    }
+  }
   const toggleChecklistItem = (item) => {
     setDraft(d => {
       const next = new Set(d.checklist || [])
@@ -257,7 +276,7 @@ export default function ClaimDetail() {
     { id: 'claim-health-score', label: 'Claim Health Score' },
     { id: 'documentation-checklist', label: 'Documentation Checklist' },
     { id: 'procedures', label: 'Procedures' },
-    { id: 'cost-estimate', label: 'Patient Cost Estimate' },
+    { id: 'cost-estimate', label: 'Cost Calculator' },
     { id: 'clinical-findings', label: 'Clinical Findings' },
     { id: 'narrative', label: 'Narrative' },
   ]
@@ -391,11 +410,11 @@ export default function ClaimDetail() {
       </Section>
       </div>
 
-      {/* === Patient Cost Estimate — promoted above Clinical Findings so it's
-           harder to miss. The card style is brighter than ordinary Sections to
-           pull the eye, and an empty state explicitly invites the user in. === */}
+      {/* === Patient Cost Calculator — always visible, collapsible. Sits
+           above Clinical Findings so it's hard to miss; the prominent teal
+           card pulls the eye even when collapsed. === */}
       <div id="cost-estimate" className="scroll-mt-20">
-        <PatientCostEstimateCard
+        <CostCalculatorCard
           procedures={claim.procedures}
           cdtCodes={cdtCodes}
           value={draft.cost_estimate || emptyCostEstimate()}
@@ -420,7 +439,7 @@ export default function ClaimDetail() {
               key={q.key}
               label={`Probing ${q.clinicalKey} (${q.label})`}
               value={draft.clinical_findings.probing_depths?.[q.clinicalKey]}
-              onSave={v => updateProbingDepth(q.clinicalKey, v)}
+              onSave={v => updateProbingDepth(q.clinicalKey, normalizeProbingDepth(v))}
               placeholder="e.g., 5-8mm"
             />
           ))}
@@ -494,6 +513,8 @@ export default function ClaimDetail() {
           approved={draft.narrative_approved}
           onSave={updateNarrative}
           onApprove={approveNarrative}
+          onGenerate={onGenerateNarrative}
+          generating={generatingNarrative}
         />
       </Section>
       </div>
@@ -796,59 +817,6 @@ async function runDenialFeedback({ newClaim, allClaims, requirements, saveRequir
 
 // ---------- Layout helpers ----------
 
-// Patient Cost Estimate — a brighter card than ordinary Sections so it pulls
-// the eye on the report page. Shows an explicit empty-state CTA when the user
-// hasn't filled out the estimate yet; flips to the full editor on click.
-function PatientCostEstimateCard({ procedures, cdtCodes, value, onChange, onPrint }) {
-  const filled = hasCostEstimateData(value)
-  const [expanded, setExpanded] = useState(filled)
-
-  if (!expanded) {
-    return (
-      <div className="rounded-xl border-2 border-teal/40 bg-teal/5 p-6">
-        <div className="flex items-start gap-4 flex-wrap">
-          <div className="shrink-0 p-3 rounded-full bg-teal/15 text-teal">
-            <Calculator size={28} strokeWidth={1.6} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="font-serif text-2xl text-text-strong leading-tight">Patient Cost Estimate</h2>
-            <p className="text-sm text-text-muted mt-1.5 max-w-xl">
-              Estimate the patient's out-of-pocket and what insurance will cover, using their plan's deductible, max benefit, and coinsurance. Print as a treatment plan to hand to the patient.
-            </p>
-          </div>
-          <button
-            onClick={() => setExpanded(true)}
-            className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 bg-teal text-white text-sm font-medium rounded-full hover:opacity-90"
-          >
-            <Calculator size={16} /> Add Cost Estimate
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <section className="bg-white border-2 border-teal/30 rounded-xl p-6">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="shrink-0 p-2 rounded-full bg-teal/15 text-teal">
-          <Calculator size={20} strokeWidth={1.8} />
-        </div>
-        <div className="flex-1">
-          <h2 className="font-serif text-2xl text-text-strong leading-tight">Patient Cost Estimate</h2>
-          <p className="text-xs text-text-muted mt-0.5">Click any field to edit · Print to hand to the patient</p>
-        </div>
-      </div>
-      <CostEstimatorPanel
-        procedures={procedures}
-        cdtCodes={cdtCodes}
-        value={value}
-        onChange={onChange}
-        onPrint={onPrint}
-      />
-    </section>
-  )
-}
-
 function Section({ title, children }) {
   return (
     <section className="bg-white border border-border-warm rounded-lg p-5">
@@ -919,11 +887,11 @@ function EditableItem({ label, value, onSave, type = 'text', placeholder, suffix
             onChange={e => setDraft(e.target.value)}
             onBlur={onBlur}
             placeholder={placeholder}
-            className={inlineFieldCls + (suffix ? ' pr-7' : '')}
+            className={inlineFieldCls + (suffix ? ' pr-12' : '')}
           />
         )}
         {suffix && !multiline && (
-          <span className="pointer-events-none absolute right-2 text-text-muted text-xs">{suffix}</span>
+          <span className="pointer-events-none absolute right-1 inline-flex items-center justify-center px-2 py-0.5 rounded-md bg-teal/15 text-teal font-semibold text-sm leading-none">{suffix}</span>
         )}
       </div>
     </div>
@@ -943,12 +911,16 @@ function EditableDateItem({ label, value, onSave }) {
   )
 }
 
-function InlineNarrative({ value, approved, onSave, onApprove }) {
+function InlineNarrative({ value, approved, onSave, onApprove, onGenerate, generating }) {
   const [draft, setDraft] = useState(value ?? '')
   useEffect(() => { setDraft(value ?? '') }, [value])
   const onBlur = () => {
     if ((value ?? '') !== draft) onSave(draft)
   }
+  // Generate / Regenerate is always offered when the narrative isn't approved
+  // — even when the textarea is empty or has draft content. The label flips
+  // based on whether anything is there.
+  const generateLabel = draft.trim() ? 'Regenerate with Claude' : 'Generate Narrative with Claude'
   return (
     <div className="space-y-3">
       <textarea
@@ -956,17 +928,31 @@ function InlineNarrative({ value, approved, onSave, onApprove }) {
         value={draft}
         onChange={e => setDraft(e.target.value)}
         onBlur={onBlur}
-        placeholder="No narrative yet — paste or write one here. It saves automatically."
+        placeholder="No narrative yet — paste or write one here, or click Generate Narrative with Claude."
         className={inlineFieldCls + ' font-serif text-base leading-relaxed resize-y min-h-[160px]'}
       />
-      {!approved && draft.trim() && (
-        <button
-          onClick={onApprove}
-          className="px-3.5 py-1.5 text-sm bg-success text-white rounded-full hover:opacity-90"
-        >
-          Approve Narrative
-        </button>
-      )}
+      <div className="flex flex-wrap gap-2">
+        {!approved && (
+          <button
+            onClick={onGenerate}
+            disabled={generating}
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 text-sm bg-navy text-cream-light rounded-full hover:opacity-90 disabled:opacity-50"
+          >
+            {generating
+              ? <><Loader2 size={14} className="animate-spin" /> Generating…</>
+              : <><Sparkles size={14} /> {generateLabel}</>}
+          </button>
+        )}
+        {!approved && draft.trim() && (
+          <button
+            onClick={onApprove}
+            disabled={generating}
+            className="px-3.5 py-1.5 text-sm bg-success text-white rounded-full hover:opacity-90 disabled:opacity-50"
+          >
+            Approve Narrative
+          </button>
+        )}
+      </div>
     </div>
   )
 }
