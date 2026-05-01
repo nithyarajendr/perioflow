@@ -45,7 +45,9 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
         <div className="space-y-5">
           {/* 1. UCR override table — corresponds to step 1 (UCR total). */}
           {procedures.length > 0 && (
-            <div>
+            <div className="flex items-start gap-3">
+              <StepCircle n="1" className="mt-0.5" />
+              <div className="flex-1 min-w-0">
               <h4 className="text-sm font-semibold text-text-strong mb-1">Payer's usual & customary rate per procedure (UCR)</h4>
               <p className="text-xs text-text-muted mb-3">Optional — leave blank to use the practice fee as the UCR.</p>
               <div className="border border-border-warm rounded-md overflow-hidden">
@@ -86,11 +88,12 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
                   </tbody>
                 </table>
               </div>
+              </div>
             </div>
           )}
 
           {/* 2. Remaining deductible — step 2 of the math. */}
-          <Field label="Remaining deductible" hint="Amount patient still owes before insurance pays.">
+          <Field step="2" label="Remaining deductible" hint="Amount patient still owes before insurance pays.">
             <div className={inputWrapperCls}>
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-sm">$</span>
               <input
@@ -109,6 +112,7 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
               explicit helper above the input, and a placeholder that names
               the unit. */}
           <Field
+            step="3"
             label="Patient's OON reimbursement rate"
             required
             sublabel="Enter as a whole number (e.g. 50 for 50%, 80 for 80%)"
@@ -128,7 +132,7 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
           </Field>
 
           {/* 4. Remaining annual max — step 4 of the math (cap). */}
-          <Field label="Remaining annual max" hint="Insurance benefit dollars left for the year. Reimbursement won't exceed this.">
+          <Field step="4" label="Remaining annual max" hint="Insurance benefit dollars left for the year. Reimbursement won't exceed this.">
             <div className={inputWrapperCls}>
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-sm">$</span>
               <input
@@ -223,17 +227,16 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
               {' '}− Estimated reimbursement <span className="font-mono">${estimate.finalReimbursement.toFixed(2)}</span>
               {' = '}<strong>${estimate.patientOOP.toFixed(2)} out-of-pocket</strong>
             </div>
+            {/* Summary bar — visually attached to step 5 with no separator
+                so the math leads directly into the answer. Indented so it
+                aligns with the step body column above. */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mt-3">
+              <SummaryNumber label="Total Fee" value={estimate.practiceFeeTotal} tone="navy" />
+              <SummaryNumber label="Insurance Pays" value={estimate.finalReimbursement} tone="success" />
+              <SummaryNumber label="Patient Pays" value={estimate.patientOOP} tone="navy" />
+            </div>
           </Step>
         </ol>
-
-        {/* Single clean summary bar — matches the collapsed banner at the
-            top of the page. The math breakdown above shows the steps; this
-            shows the final answer. No repetition. */}
-        <div className="mt-6 pt-5 border-t-2 border-border-warm grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-          <SummaryNumber label="Total Fee" value={estimate.practiceFeeTotal} tone="navy" />
-          <SummaryNumber label="Insurance Pays" value={estimate.finalReimbursement} tone="success" />
-          <SummaryNumber label="Patient Pays" value={estimate.patientOOP} tone="navy" />
-        </div>
       </div>
 
       {/* Warnings */}
@@ -248,26 +251,49 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
   )
 }
 
-function Field({ label, sublabel, hint, required, children }) {
+// `step`, when provided, renders a numbered circle to the left of the label
+// that exactly matches the step circle in the math breakdown below — that's
+// the visual "I entered this number here, watch it show up in step N down
+// there" cue the user can trace.
+function Field({ label, sublabel, hint, required, step, children }) {
   return (
     <label className="block">
-      <span className="block text-sm font-medium text-text-strong mb-1">
-        {label}
-        {required && <span className="text-danger ml-1">*</span>}
-      </span>
-      {sublabel && <span className="block text-xs text-text-muted mb-1.5">{sublabel}</span>}
-      {children}
-      {hint && <span className="block text-xs text-text-muted mt-1">{hint}</span>}
+      <div className="flex items-start gap-3">
+        {step ? (
+          <StepCircle n={step} className="mt-0.5" />
+        ) : (
+          // Spacer so labelled-without-step rows still align with the input
+          // column of stepped rows above/below.
+          <span className="shrink-0 w-7" aria-hidden="true" />
+        )}
+        <div className="flex-1 min-w-0">
+          <span className="block text-sm font-medium text-text-strong mb-1">
+            {label}
+            {required && <span className="text-danger ml-1">*</span>}
+          </span>
+          {sublabel && <span className="block text-xs text-text-muted mb-1.5">{sublabel}</span>}
+          {children}
+          {hint && <span className="block text-xs text-text-muted mt-1">{hint}</span>}
+        </div>
+      </div>
     </label>
+  )
+}
+
+// The numbered circle used by both Field (input rows) and Step (math
+// breakdown rows) so they're visually identical and the user can trace.
+function StepCircle({ n, className = '' }) {
+  return (
+    <span className={`shrink-0 w-7 h-7 rounded-full bg-cream border border-border-warm flex items-center justify-center text-xs font-semibold text-text-muted ${className}`}>
+      {n}
+    </span>
   )
 }
 
 function Step({ n, label, children }) {
   return (
     <li className="flex items-start gap-4">
-      <span className="shrink-0 w-7 h-7 rounded-full bg-cream border border-border-warm flex items-center justify-center text-xs font-semibold text-text-muted">
-        {n}
-      </span>
+      <StepCircle n={n} />
       <div className="flex-1 min-w-0 pt-0.5">
         <div className="text-[11px] uppercase tracking-[0.14em] text-text-muted mb-0.5">{label}</div>
         <div className="text-sm leading-relaxed">{children}</div>
