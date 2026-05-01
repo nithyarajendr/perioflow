@@ -48,19 +48,21 @@ export default function CostCalculatorCard({
           </span>
         </div>
 
-        {/* Three big numbers — always visible, never collapsed away. */}
+        {/* Three big numbers — always visible, never collapsed away. The
+            labels are deliberately plain-language ("Insurance Pays" /
+            "Patient Pays") because staff read these to the patient. */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
           <BannerNumber
             label="Total Fee"
             value={`$${estimate.practiceFeeTotal.toFixed(2)}`}
           />
           <BannerNumber
-            label="Est. Reimbursement"
+            label="Insurance Pays"
             value={filled ? `$${estimate.finalReimbursement.toFixed(2)}` : '—'}
             tone={filled ? 'success' : 'muted'}
           />
           <BannerNumber
-            label="Est. Out-of-Pocket"
+            label="Patient Pays"
             value={filled ? `$${estimate.patientOOP.toFixed(2)}` : '—'}
             tone={filled ? 'navy' : 'muted'}
           />

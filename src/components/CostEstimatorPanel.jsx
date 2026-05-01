@@ -2,9 +2,16 @@ import { useMemo } from 'react'
 import { AlertTriangle, Info, Printer, Calculator } from 'lucide-react'
 import { computeCostEstimate, PERIO_CLASSIFICATIONS, emptyCostEstimate } from '../lib/cost'
 
+// These number inputs hold 2-5 digit values (deductibles, percentages,
+// dollar caps). Keeping them at a reasonable width — full-width looked
+// broken with so much trailing whitespace.
 const inputCls =
-  'w-full px-3 py-2 border border-border-warm rounded-md text-sm bg-white ' +
+  'w-full max-w-[300px] px-3 py-2 border border-border-warm rounded-md text-sm bg-white ' +
   'focus:outline-none focus:ring-2 focus:ring-teal/40 focus:border-teal'
+
+// Wrapper around the input + its $ / % decoration. Same max-width as the
+// input itself so the badge sits flush to the right edge.
+const inputWrapperCls = 'relative w-full max-w-[300px]'
 
 /**
  * CostEstimatorPanel — reusable across:
@@ -84,7 +91,7 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
 
           {/* 2. Remaining deductible — step 2 of the math. */}
           <Field label="Remaining deductible" hint="Amount patient still owes before insurance pays.">
-            <div className="relative">
+            <div className={inputWrapperCls}>
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-sm">$</span>
               <input
                 type="number" min="0" step="1"
@@ -107,7 +114,7 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
             sublabel="Enter as a whole number (e.g. 50 for 50%, 80 for 80%)"
             hint="Percentage of UCR the plan pays for out-of-network periodontal procedures."
           >
-            <div className="relative">
+            <div className={inputWrapperCls}>
               <input
                 type="number" min="0" max="100" step="1"
                 value={inputs.oon_reimbursement_pct ?? ''}
@@ -122,7 +129,7 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
 
           {/* 4. Remaining annual max — step 4 of the math (cap). */}
           <Field label="Remaining annual max" hint="Insurance benefit dollars left for the year. Reimbursement won't exceed this.">
-            <div className="relative">
+            <div className={inputWrapperCls}>
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-sm">$</span>
               <input
                 type="number" min="0" step="1"
@@ -219,27 +226,13 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
           </Step>
         </ol>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6 pt-5 border-t-2 border-border-warm">
-          <SummaryCard
-            label="Estimated reimbursement"
-            value={estimate.finalReimbursement}
-            tint="success"
-          />
-          <SummaryCard
-            label="Estimated patient out-of-pocket"
-            value={estimate.patientOOP}
-            tint="navy"
-          />
-        </div>
-
-        {/* Equation row — makes it explicit that the two estimates add up to
-            the total fee, no money missing. */}
-        <div className="mt-4 px-4 py-3 rounded-lg bg-cream-light border border-border-warm flex items-center justify-center text-center text-sm sm:text-base text-text-strong flex-wrap gap-x-2 gap-y-1">
-          <span>Estimated Reimbursement <strong className="font-mono">${estimate.finalReimbursement.toFixed(2)}</strong></span>
-          <span className="text-text-muted">+</span>
-          <span>Estimated Patient Out-of-Pocket <strong className="font-mono">${estimate.patientOOP.toFixed(2)}</strong></span>
-          <span className="text-text-muted">=</span>
-          <span>Total Fee <strong className="font-mono">${estimate.practiceFeeTotal.toFixed(2)}</strong></span>
+        {/* Single clean summary bar — matches the collapsed banner at the
+            top of the page. The math breakdown above shows the steps; this
+            shows the final answer. No repetition. */}
+        <div className="mt-6 pt-5 border-t-2 border-border-warm grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          <SummaryNumber label="Total Fee" value={estimate.practiceFeeTotal} tone="navy" />
+          <SummaryNumber label="Insurance Pays" value={estimate.finalReimbursement} tone="success" />
+          <SummaryNumber label="Patient Pays" value={estimate.patientOOP} tone="navy" />
         </div>
       </div>
 
@@ -283,15 +276,19 @@ function Step({ n, label, children }) {
   )
 }
 
-function SummaryCard({ label, value, tint }) {
-  const tints = {
-    success: 'bg-success/10 border-success/40 text-success',
-    navy: 'bg-navy/5 border-navy/30 text-text-strong',
+// Same visual treatment as the collapsed Cost Calculator banner at the top
+// of the page — keeps the bottom summary feeling like the same UI element.
+function SummaryNumber({ label, value, tone = 'navy' }) {
+  const tones = {
+    navy: 'text-text-strong',
+    success: 'text-success',
   }
   return (
-    <div className={`rounded-lg border p-4 ${tints[tint] || tints.navy}`}>
-      <div className="text-[11px] uppercase tracking-[0.16em] text-text-muted">{label}</div>
-      <div className="font-serif text-3xl mt-1 leading-tight">${value.toFixed(2)}</div>
+    <div className="rounded-lg bg-white border border-teal/20 px-4 py-3">
+      <div className="text-[11px] uppercase tracking-[0.16em] text-text-muted font-semibold">{label}</div>
+      <div className={`font-serif text-3xl sm:text-4xl leading-none mt-1.5 tabular-nums ${tones[tone]}`}>
+        ${value.toFixed(2)}
+      </div>
     </div>
   )
 }
