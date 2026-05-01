@@ -279,11 +279,10 @@ export default function ClaimDetail() {
     }
   }
 
-  // TOC sections — order matches the page top-to-bottom. Patient & Insurance
-  // is the header itself, so it isn't a jump target (clicking it would scroll
-  // to the top, which is what the back button is for).
+  // TOC sections — only the sections BELOW the nav bar are listed. The
+  // header (Patient & Insurance) and the Cost Calculator banner sit above
+  // the TOC, so jumping to them would scroll the user backwards.
   const tocSections = [
-    { id: 'cost-estimate', label: 'Cost Calculator' },
     { id: 'claim-health-score', label: 'Claim Health Score' },
     { id: 'documentation-checklist', label: 'Documentation Checklist' },
     { id: 'procedures', label: 'Procedures' },
