@@ -3,22 +3,23 @@ import { Calendar } from 'lucide-react'
 import { todayIso } from '../lib/utils'
 
 /**
- * Hybrid date field — typed entry as the primary UI, native picker as a
- * fallback for users who prefer to click. The visible input is plain text in
- * MM/DD/YYYY format; we parse on blur and forward the ISO YYYY-MM-DD value
- * via onChange (matching the original `<input type="date">` contract so all
- * existing call sites work unchanged).
+ * Hybrid date field — visually unmistakable as a date input (prominent
+ * calendar icon on the left, tinted background, distinct border) while still
+ * allowing both:
+ *   • Click anywhere in the field → opens the platform date picker via
+ *     showPicker() on a hidden <input type="date">.
+ *   • Free-form typing in MM/DD/YYYY (also tolerates dashes, dots, 2-digit
+ *     years) — parses on blur, silently reverts on invalid.
  *
- * The native `<input type="date">` is rendered hidden alongside; the calendar
- * button calls showPicker() on it to open the platform picker.
+ * The onChange contract matches `<input type="date">`: the event's
+ * target.value is the canonical ISO YYYY-MM-DD.
  */
 export default function DateField({ value, onChange, className = '', defaultEmpty = false, ...rest }) {
   const effectiveIso = value || (defaultEmpty ? '' : todayIso())
   const [text, setText] = useState(isoToDisplay(effectiveIso))
   const hiddenRef = useRef(null)
+  const textRef = useRef(null)
 
-  // Resync the display when the upstream value changes (e.g. picker selection,
-  // or another field updating the same date).
   useEffect(() => { setText(isoToDisplay(effectiveIso)) }, [effectiveIso])
 
   const fireChange = (iso) => {
@@ -32,8 +33,6 @@ export default function DateField({ value, onChange, className = '', defaultEmpt
     }
     const iso = parseDisplay(text)
     if (iso === null) {
-      // Invalid input — silently revert to the last good value so the user
-      // sees their typo replaced rather than getting a stuck error state.
       setText(isoToDisplay(effectiveIso))
     } else if (iso !== effectiveIso) {
       fireChange(iso)
@@ -50,9 +49,25 @@ export default function DateField({ value, onChange, className = '', defaultEmpt
     }
   }
 
+  // Click anywhere in the field opens the picker AND focuses the text input
+  // (so once the user dismisses the picker with Escape, they can immediately
+  // type a date instead).
+  const onWrapperClick = (e) => {
+    if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return
+    textRef.current?.focus()
+    openPicker()
+  }
+
   return (
-    <span className="relative block">
+    <span
+      onClick={onWrapperClick}
+      className={`relative inline-flex items-center w-full rounded-md bg-teal/5 border border-teal/40 hover:bg-teal/10 focus-within:bg-white focus-within:border-teal focus-within:ring-2 focus-within:ring-teal/30 cursor-pointer transition-colors ${className.includes('w-full') ? '' : 'w-full'}`}
+    >
+      <span className="absolute left-2.5 text-teal pointer-events-none">
+        <Calendar size={16} strokeWidth={2} />
+      </span>
       <input
+        ref={textRef}
         type="text"
         value={text}
         onChange={e => setText(e.target.value)}
@@ -60,18 +75,9 @@ export default function DateField({ value, onChange, className = '', defaultEmpt
         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitTyped() } }}
         placeholder="MM/DD/YYYY"
         inputMode="numeric"
-        className={`${className} pr-9`}
+        className="flex-1 min-w-0 bg-transparent border-none outline-none px-2 py-2 pl-8 text-sm text-text-strong placeholder:text-text-muted focus:ring-0"
         {...rest}
       />
-      <button
-        type="button"
-        onClick={openPicker}
-        aria-label="Open date picker"
-        tabIndex={-1}
-        className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-strong p-0.5"
-      >
-        <Calendar size={14} />
-      </button>
       <input
         ref={hiddenRef}
         type="date"
@@ -85,7 +91,6 @@ export default function DateField({ value, onChange, className = '', defaultEmpt
   )
 }
 
-// ISO YYYY-MM-DD → "MM/DD/YYYY" for display.
 function isoToDisplay(iso) {
   if (!iso) return ''
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
@@ -93,9 +98,6 @@ function isoToDisplay(iso) {
   return `${m[2]}/${m[3]}/${m[1]}`
 }
 
-// Lenient parser: accepts MM/DD/YYYY, M/D/YY, MM-DD-YYYY, etc. Returns the
-// canonical ISO YYYY-MM-DD, or null if the text doesn't look like a date.
-// Two-digit years: 00-50 → 20xx, 51-99 → 19xx.
 function parseDisplay(text) {
   const cleaned = text.trim().replace(/[.\-\s]/g, '/')
   const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(cleaned)

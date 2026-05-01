@@ -60,7 +60,12 @@ export function RequirementsListSection({ groups, checked, onToggle, readOnly = 
   const stats = computeChecklistStats(groups, checked)
   return (
     <div className="space-y-4">
-      <ProgressBar checked={stats.requiredChecked} total={stats.requiredItems.length} anyLoading={stats.anyLoading} />
+      <ProgressBar
+        checked={stats.requiredChecked}
+        total={stats.requiredItems.length}
+        anyLoading={stats.anyLoading}
+        anyError={stats.anyError}
+      />
       <ChecklistList
         groups={groups}
         checked={checked}
@@ -109,7 +114,7 @@ function HealthScoreCard({ score, requiredChecked, totalRequired, anyLoading, an
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted">Claim Health Score</p>
           <h2 className="font-serif text-2xl mt-1 text-warning">Requirements unavailable</h2>
           <p className="text-sm text-text-strong/85 mt-1.5 leading-relaxed">
-            Couldn't fetch payer-specific documentation requirements (see details below). Use Retry, or save the claim manually once requirements load.
+            Requirements will load automatically when connected. You can still save this claim as a draft and the requirements will load when you view it later.
           </p>
         </div>
       </div>
@@ -159,11 +164,21 @@ function HealthScoreCard({ score, requiredChecked, totalRequired, anyLoading, an
   )
 }
 
-function ProgressBar({ checked, total, anyLoading }) {
+function ProgressBar({ checked, total, anyLoading, anyError }) {
   if (anyLoading && total === 0) {
     return (
       <div className="bg-white border border-border-warm rounded-lg px-5 py-3.5">
         <span className="text-sm text-text-muted">Loading requirements…</span>
+      </div>
+    )
+  }
+  // Error takes precedence over the empty state — when groups failed to load
+  // we don't actually know whether there are required items, so the
+  // "No required items" copy would be misleading.
+  if (anyError && total === 0) {
+    return (
+      <div className="bg-warning/5 border border-warning/40 rounded-lg px-5 py-3.5">
+        <span className="text-sm text-text-strong">Requirements couldn't be loaded — see details below to retry.</span>
       </div>
     )
   }

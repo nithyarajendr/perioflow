@@ -28,7 +28,7 @@ export default function CostEstimatePrintView({ open, onClose, patientName, proc
     <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-auto p-4 print-overlay">
       <div className="bg-white max-w-3xl w-full rounded-lg shadow-xl my-8 print-sheet">
         <div className="flex items-center justify-between px-6 py-3 border-b border-border-warm no-print">
-          <div className="text-sm font-medium text-text-strong">Patient Cost Estimate — Preview</div>
+          <div className="text-sm font-medium text-text-strong">Patient Cost Calculator — Preview</div>
           <div className="flex items-center gap-2">
             <button onClick={() => window.print()} className="inline-flex items-center gap-2 px-3 py-1.5 bg-navy text-cream-light rounded-md text-sm hover:opacity-90">
               <Printer size={14} /> Print / Save as PDF
@@ -48,7 +48,7 @@ export default function CostEstimatePrintView({ open, onClose, patientName, proc
                 <p className="text-sm text-text-muted">{settings?.practice_phone}</p>
               </div>
               <div className="text-right">
-                <h2 className="font-serif text-xl">Cost Estimate</h2>
+                <h2 className="font-serif text-xl">Patient Cost Estimate</h2>
                 <p className="text-xs text-text-muted">Generated {formatDate(new Date())}</p>
               </div>
             </div>

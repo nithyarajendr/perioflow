@@ -7,6 +7,13 @@
       "runtimeArgs": ["run", "dev"],
       "cwd": "/Users/nithya-new/perioflow",
       "port": 5173
+    },
+    {
+      "name": "perioflow-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:api"],
+      "cwd": "/Users/nithya-new/perioflow",
+      "port": 8787
     }
   ]
 }
