@@ -150,20 +150,30 @@ function HealthScoreCard({ breakdown, anyLoading, anyError }) {
   const DocIcon = allRequiredChecked ? CheckCircle2 : AlertOctagon
   const docIconCls = allRequiredChecked ? 'text-success' : 'text-danger'
 
-  // Narrative status — independent indicator.
-  let narrativeText, NarrativeIcon, narrativeIconCls
+  // Narrative status — independent indicator. When unapproved, the text is
+  // a smooth-scroll link to the Narrative section so the user can jump
+  // straight to fixing it.
+  let narrativeText, NarrativeIcon, narrativeIconCls, narrativeIsLink
   if (narrativeApproved) {
     narrativeText = 'Narrative: Approved'
     NarrativeIcon = CheckCircle2
     narrativeIconCls = 'text-success'
+    narrativeIsLink = false
   } else if (narrativePresent) {
     narrativeText = 'Narrative: Not yet approved'
     NarrativeIcon = AlertTriangle
     narrativeIconCls = 'text-warning'
+    narrativeIsLink = true
   } else {
     narrativeText = 'Narrative: Not yet written'
     NarrativeIcon = AlertTriangle
     narrativeIconCls = 'text-warning'
+    narrativeIsLink = true
+  }
+  const onScrollToNarrative = (e) => {
+    e.preventDefault()
+    const el = document.getElementById('narrative')
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   const { Icon } = headerConfig
@@ -182,7 +192,17 @@ function HealthScoreCard({ breakdown, anyLoading, anyError }) {
           </li>
           <li className="flex items-start gap-2">
             <NarrativeIcon size={16} className={`shrink-0 mt-0.5 ${narrativeIconCls}`} />
-            <span className="text-text-strong">{narrativeText}</span>
+            {narrativeIsLink ? (
+              <a
+                href="#narrative"
+                onClick={onScrollToNarrative}
+                className="text-teal underline underline-offset-2 hover:text-teal/80 cursor-pointer"
+              >
+                {narrativeText}
+              </a>
+            ) : (
+              <span className="text-text-strong">{narrativeText}</span>
+            )}
           </li>
         </ul>
       </div>

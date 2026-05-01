@@ -283,10 +283,10 @@ export default function ClaimDetail() {
   // Estimate" entry appears after Clinical Findings to match the page order.
   const tocSections = [
     { id: 'patient-insurance', label: 'Patient & Insurance' },
+    { id: 'cost-estimate', label: 'Cost Calculator' },
     { id: 'claim-health-score', label: 'Claim Health Score' },
     { id: 'documentation-checklist', label: 'Documentation Checklist' },
     { id: 'procedures', label: 'Procedures' },
-    { id: 'cost-estimate', label: 'Cost Calculator' },
     { id: 'clinical-findings', label: 'Clinical Findings' },
     { id: 'narrative', label: 'Narrative' },
   ]
@@ -334,19 +334,30 @@ export default function ClaimDetail() {
             onLogOutcome={() => setOutcomeOpen(true)}
           />
 
-          {/* At-a-glance stats row */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-x-6 gap-y-4 pt-4 mt-5 border-t border-border-warm">
+          {/* At-a-glance stats row — Total Fee removed because it's now the
+              first big number in the Cost Calculator banner just below. */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-4 pt-4 mt-5 border-t border-border-warm">
             <HeaderStat label="Date of Service">{formatDate(claim.date_of_service) || '—'}</HeaderStat>
             <HeaderStat label="Payer">{payer?.name || claim.payer_id || '—'}</HeaderStat>
             <HeaderStat label="Plan Type">{payer?.plan_type || '—'}</HeaderStat>
             <HeaderStat label="Procedures">
               <span className="font-mono">{procedureCodes}</span>
             </HeaderStat>
-            <HeaderStat label="Total Fee">
-              <span className="font-serif text-2xl text-text-strong leading-none">{formatMoney(claim.total_fee)}</span>
-            </HeaderStat>
           </div>
         </div>
+      </div>
+
+      {/* === Patient Cost Calculator banner — sits directly below the
+           header so the three big numbers (Total / Reimb / OOP) are the
+           most prominent thing on the page after the claim title. === */}
+      <div id="cost-estimate" className="scroll-mt-20">
+        <CostCalculatorCard
+          procedures={claim.procedures}
+          cdtCodes={cdtCodes}
+          value={draft.cost_estimate || emptyCostEstimate()}
+          onChange={updateCostEstimate}
+          onPrint={() => setCostPrintOpen(true)}
+        />
       </div>
 
       {/* Sticky horizontal TOC for jumping between sections. */}
@@ -418,19 +429,6 @@ export default function ClaimDetail() {
           </tfoot>
         </table>
       </Section>
-      </div>
-
-      {/* === Patient Cost Calculator — always visible, collapsible. Sits
-           above Clinical Findings so it's hard to miss; the prominent teal
-           card pulls the eye even when collapsed. === */}
-      <div id="cost-estimate" className="scroll-mt-20">
-        <CostCalculatorCard
-          procedures={claim.procedures}
-          cdtCodes={cdtCodes}
-          value={draft.cost_estimate || emptyCostEstimate()}
-          onChange={updateCostEstimate}
-          onPrint={() => setCostPrintOpen(true)}
-        />
       </div>
 
       {/* Clinical Findings — inline editable. Edits accumulate in draft; floating save bar commits. */}
@@ -935,9 +933,42 @@ function InlineNarrative({ value, approved, onSave, onApprove, onGenerate, gener
   const onBlur = () => {
     if ((value ?? '') !== draft) onSave(draft)
   }
-  // Generate / Regenerate is always offered when the narrative isn't approved
-  // — even when the textarea is empty or has draft content. The label flips
-  // based on whether anything is there.
+
+  // Empty state — show a prominent amber-bordered CTA card so it's obvious
+  // this section needs attention before the claim can be submitted.
+  if (!draft.trim() && !approved) {
+    return (
+      <div className="rounded-xl border-2 border-warning/50 bg-warning/10 p-6 sm:p-8 text-center">
+        <div className="mx-auto mb-4 inline-flex items-center justify-center w-12 h-12 rounded-full bg-warning/20 text-warning">
+          <AlertTriangle size={24} strokeWidth={1.6} />
+        </div>
+        <h3 className="font-serif text-xl text-text-strong">This claim needs a clinical narrative before it can be submitted.</h3>
+        <p className="text-sm text-text-muted mt-2 max-w-md mx-auto">
+          Generate one from the procedures and clinical findings, or write your own below.
+        </p>
+        <div className="mt-5 flex flex-col sm:flex-row items-center justify-center gap-3">
+          <button
+            onClick={onGenerate}
+            disabled={generating}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-cream-light text-sm sm:text-base font-medium rounded-full hover:opacity-90 disabled:opacity-50"
+          >
+            {generating
+              ? <><Loader2 size={16} className="animate-spin" /> Generating…</>
+              : <><Sparkles size={16} /> Generate Narrative with Claude</>}
+          </button>
+          <button
+            onClick={() => setDraft(' ')}
+            disabled={generating}
+            className="text-sm text-text-muted hover:text-text-strong underline-offset-2 hover:underline"
+          >
+            or write manually
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Editing state — textarea + generate / approve actions.
   const generateLabel = draft.trim() ? 'Regenerate with Claude' : 'Generate Narrative with Claude'
   return (
     <div className="space-y-3">
@@ -948,6 +979,7 @@ function InlineNarrative({ value, approved, onSave, onApprove, onGenerate, gener
         onBlur={onBlur}
         placeholder="No narrative yet — paste or write one here, or click Generate Narrative with Claude."
         className={inlineFieldCls + ' font-serif text-base leading-relaxed resize-y min-h-[160px]'}
+        autoFocus={!value}
       />
       <div className="flex flex-wrap gap-2">
         {!approved && (

@@ -8,17 +8,13 @@ const inputCls =
 
 /**
  * CostEstimatorPanel — reusable across:
- *   • New Claim wizard step (between Procedures and Clinical Findings)
+ *   • New Claim wizard step (Review & Generate)
  *   • Claim Detail page (live recompute from saved cost_estimate + procedures)
- *   • Standalone Cost Estimator page
+ *   • Standalone Cost Calculator page
  *
- * Props:
- *   procedures        — [{ cdt_code, fee, ... }] (required)
- *   cdtCodes          — full CDT code list (for descriptions)
- *   value             — current cost_estimate object
- *   onChange          — (next) => void; receives full cost_estimate
- *   onPrint           — (estimate) => void; optional, opens print PDF
- *   readOnly          — disable inputs (e.g. submitted claims)
+ * Field order matches the math order below (UCR → deductible → rate →
+ * annual max → classification) so the user fills in fields top-to-bottom
+ * and the equation reads in the same order.
  */
 export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], value, onChange, onPrint, readOnly = false }) {
   const inputs = value || emptyCostEstimate()
@@ -34,26 +30,59 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
 
   return (
     <div className="space-y-5">
-      {/* Inputs */}
+      {/* Inputs — single column, in math order. */}
       <div className="bg-white border border-border-warm rounded-lg p-5">
         <h3 className="font-serif text-xl text-text-strong mb-1">Insurance & Plan Details</h3>
         <p className="text-sm text-text-muted mb-4">Plan-specific numbers from the patient's benefits — used to estimate reimbursement.</p>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="Patient's OON reimbursement rate" required hint="Percentage of UCR the plan pays for out-of-network periodontal procedures.">
-            <div className="relative">
-              <input
-                type="number" min="0" max="100" step="1"
-                value={inputs.oon_reimbursement_pct ?? ''}
-                onChange={e => update({ oon_reimbursement_pct: e.target.value })}
-                disabled={readOnly}
-                placeholder="e.g., 50"
-                className={inputCls + ' pr-7'}
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted text-sm">%</span>
+        <div className="space-y-5">
+          {/* 1. UCR override table — corresponds to step 1 (UCR total). */}
+          {procedures.length > 0 && (
+            <div>
+              <h4 className="text-sm font-semibold text-text-strong mb-1">Payer's usual & customary rate per procedure (UCR)</h4>
+              <p className="text-xs text-text-muted mb-3">Optional — leave blank to use the practice fee as the UCR.</p>
+              <div className="border border-border-warm rounded-md overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-cream-light text-xs uppercase tracking-wider text-text-muted">
+                    <tr>
+                      <th className="px-3 py-2 text-left w-24">Code</th>
+                      <th className="px-3 py-2 text-left">Description</th>
+                      <th className="px-3 py-2 text-right w-28">Practice Fee</th>
+                      <th className="px-3 py-2 text-right w-32">UCR (override)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border-warm">
+                    {procedures.map((p, idx) => {
+                      const cdt = cdtCodes.find(c => c.code === p.cdt_code)
+                      const ucrVal = inputs.ucr_per_code?.[p.cdt_code] ?? ''
+                      return (
+                        <tr key={idx}>
+                          <td className="px-3 py-2 font-mono text-text-strong">{p.cdt_code || '—'}</td>
+                          <td className="px-3 py-2 text-text-muted truncate max-w-md">{cdt?.description || '—'}</td>
+                          <td className="px-3 py-2 text-right text-text-strong">${(Number(p.fee) || 0).toFixed(2)}</td>
+                          <td className="px-3 py-2">
+                            <div className="relative">
+                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted text-xs">$</span>
+                              <input
+                                type="number" min="0" step="0.01"
+                                value={ucrVal}
+                                onChange={e => updateUcr(p.cdt_code, e.target.value)}
+                                disabled={readOnly}
+                                placeholder={(Number(p.fee) || 0).toString()}
+                                className="w-full pl-5 pr-2 py-1 border border-border-warm rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal/40 focus:border-teal"
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </Field>
+          )}
 
+          {/* 2. Remaining deductible — step 2 of the math. */}
           <Field label="Remaining deductible" hint="Amount patient still owes before insurance pays.">
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-sm">$</span>
@@ -68,6 +97,30 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
             </div>
           </Field>
 
+          {/* 3. OON reimbursement rate — step 3 of the math. Made unmistakably
+              a percentage input: large teal "%" pill on the right, an
+              explicit helper above the input, and a placeholder that names
+              the unit. */}
+          <Field
+            label="Patient's OON reimbursement rate"
+            required
+            sublabel="Enter as a whole number (e.g. 50 for 50%, 80 for 80%)"
+            hint="Percentage of UCR the plan pays for out-of-network periodontal procedures."
+          >
+            <div className="relative">
+              <input
+                type="number" min="0" max="100" step="1"
+                value={inputs.oon_reimbursement_pct ?? ''}
+                onChange={e => update({ oon_reimbursement_pct: e.target.value })}
+                disabled={readOnly}
+                placeholder="Enter percentage, e.g. 50"
+                className={inputCls + ' pr-14'}
+              />
+              <span className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center px-3 py-1.5 rounded-md bg-teal/15 text-teal font-bold text-base leading-none pointer-events-none">%</span>
+            </div>
+          </Field>
+
+          {/* 4. Remaining annual max — step 4 of the math (cap). */}
           <Field label="Remaining annual max" hint="Insurance benefit dollars left for the year. Reimbursement won't exceed this.">
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-sm">$</span>
@@ -82,14 +135,13 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
             </div>
           </Field>
 
+          {/* 5. Perio classification — affects the rate above. Last because
+              it's a shortcut that pre-fills the rate field. */}
           <Field label="How does this plan classify periodontal procedures?" hint="Major vs basic can change reimbursement significantly. Picking one will pre-fill the OON reimbursement rate above; you can still edit it.">
             <select
               value={inputs.perio_classification || 'unknown'}
               onChange={e => {
                 const next = e.target.value
-                // Picking Basic / Major auto-fills the OON reimbursement rate
-                // with the typical percentage for that classification. Picking
-                // Unknown leaves the rate alone. The user can still override.
                 const patch = { perio_classification: next }
                 if (next === 'basic') patch.oon_reimbursement_pct = 80
                 else if (next === 'major') patch.oon_reimbursement_pct = 50
@@ -102,51 +154,6 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
             </select>
           </Field>
         </div>
-
-        {procedures.length > 0 && (
-          <div className="mt-5">
-            <h4 className="text-sm font-semibold text-text-strong mb-1">Payer's usual & customary rate per procedure (UCR)</h4>
-            <p className="text-xs text-text-muted mb-3">Optional — leave blank to use the practice fee as the UCR.</p>
-            <div className="border border-border-warm rounded-md overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-cream-light text-xs uppercase tracking-wider text-text-muted">
-                  <tr>
-                    <th className="px-3 py-2 text-left w-24">Code</th>
-                    <th className="px-3 py-2 text-left">Description</th>
-                    <th className="px-3 py-2 text-right w-28">Practice Fee</th>
-                    <th className="px-3 py-2 text-right w-32">UCR (override)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border-warm">
-                  {procedures.map((p, idx) => {
-                    const cdt = cdtCodes.find(c => c.code === p.cdt_code)
-                    const ucrVal = inputs.ucr_per_code?.[p.cdt_code] ?? ''
-                    return (
-                      <tr key={idx}>
-                        <td className="px-3 py-2 font-mono text-text-strong">{p.cdt_code || '—'}</td>
-                        <td className="px-3 py-2 text-text-muted truncate max-w-md">{cdt?.description || '—'}</td>
-                        <td className="px-3 py-2 text-right text-text-strong">${(Number(p.fee) || 0).toFixed(2)}</td>
-                        <td className="px-3 py-2">
-                          <div className="relative">
-                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted text-xs">$</span>
-                            <input
-                              type="number" min="0" step="0.01"
-                              value={ucrVal}
-                              onChange={e => updateUcr(p.cdt_code, e.target.value)}
-                              disabled={readOnly}
-                              placeholder={(Number(p.fee) || 0).toString()}
-                              className="w-full pl-5 pr-2 py-1 border border-border-warm rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal/40 focus:border-teal"
-                            />
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Breakdown — explicit Step 1–5 math so staff can read it to the patient. */}
@@ -224,6 +231,16 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
             tint="navy"
           />
         </div>
+
+        {/* Equation row — makes it explicit that the two estimates add up to
+            the total fee, no money missing. */}
+        <div className="mt-4 px-4 py-3 rounded-lg bg-cream-light border border-border-warm flex items-center justify-center text-center text-sm sm:text-base text-text-strong flex-wrap gap-x-2 gap-y-1">
+          <span>Estimated Reimbursement <strong className="font-mono">${estimate.finalReimbursement.toFixed(2)}</strong></span>
+          <span className="text-text-muted">+</span>
+          <span>Estimated Patient Out-of-Pocket <strong className="font-mono">${estimate.patientOOP.toFixed(2)}</strong></span>
+          <span className="text-text-muted">=</span>
+          <span>Total Fee <strong className="font-mono">${estimate.practiceFeeTotal.toFixed(2)}</strong></span>
+        </div>
       </div>
 
       {/* Warnings */}
@@ -238,13 +255,14 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
   )
 }
 
-function Field({ label, hint, required, children }) {
+function Field({ label, sublabel, hint, required, children }) {
   return (
     <label className="block">
       <span className="block text-sm font-medium text-text-strong mb-1">
         {label}
         {required && <span className="text-danger ml-1">*</span>}
       </span>
+      {sublabel && <span className="block text-xs text-text-muted mb-1.5">{sublabel}</span>}
       {children}
       {hint && <span className="block text-xs text-text-muted mt-1">{hint}</span>}
     </label>

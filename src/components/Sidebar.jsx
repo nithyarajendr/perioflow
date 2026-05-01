@@ -5,7 +5,7 @@ import CompassStar from './CompassStar'
 const navItems = [
   { to: '/', label: 'Dashboard', icon: Home, end: true },
   { to: '/new-claim', label: 'New Claim', icon: PlusCircle },
-  { to: '/cost-estimator', label: 'Cost Estimator', icon: Calculator },
+  { to: '/cost-estimator', label: 'Cost Calculator', icon: Calculator },
   { to: '/denial-insights', label: 'Denial Insights', icon: BarChart3 },
   { to: '/settings', label: 'Settings', icon: Settings },
 ]

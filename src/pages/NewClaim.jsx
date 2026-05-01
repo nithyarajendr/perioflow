@@ -757,35 +757,33 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
 
   return (
     <div className="space-y-8">
-      {/* === Top summary bar: very prominent Total Fee + always-available
-           Save as Draft. Card-style banner with teal accent so the dollar
-           figure is the first thing the eye lands on. === */}
-      <div className="flex items-center justify-between gap-6 px-6 py-6 bg-gradient-to-br from-navy to-navy/90 text-cream-light rounded-xl shadow-md flex-wrap">
-        <div className="min-w-0">
-          <div className="text-[11px] uppercase tracking-[0.22em] text-cream-light/70 font-semibold">Total Fee</div>
-          <div className="font-serif text-5xl sm:text-6xl text-cream-light leading-none mt-2 tabular-nums">
-            ${totalFee.toFixed(2)}
-          </div>
-          <div className="text-xs text-cream-light/60 mt-2">
-            {(claim.procedures || []).filter(p => p.cdt_code).length} procedure{(claim.procedures || []).filter(p => p.cdt_code).length === 1 ? '' : 's'}
-          </div>
+      {/* === Top action bar — Save as Draft + Mark as Ready stay above the
+           Cost Calculator banner so they're never pushed below the fold. === */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="text-sm text-text-muted">
+          Review & generate
         </div>
         <div className="flex gap-2 flex-wrap shrink-0">
           <button
             onClick={onSaveDraft}
-            className="px-4 py-2.5 text-sm border border-cream-light/40 rounded-full text-cream-light hover:bg-cream-light/10"
+            className="px-4 py-2 text-sm border border-border-warm rounded-full text-text-strong hover:bg-cream-light"
           >
             Save as Draft
           </button>
           <button
             onClick={onMarkReadyClick}
             disabled={score === 'red' || !score}
-            className="px-5 py-2.5 text-sm bg-teal text-white font-medium rounded-full hover:opacity-90 disabled:opacity-40"
+            className="px-5 py-2 text-sm bg-navy text-cream-light font-medium rounded-full hover:opacity-90 disabled:opacity-40"
           >
             Mark as Ready
           </button>
         </div>
       </div>
+
+      {/* === Patient Cost Calculator banner — three big numbers always
+           visible (Total Fee / Est. Reimbursement / Est. Out-of-Pocket).
+           Click to expand the full input form + math breakdown. === */}
+      <ReviewCostEstimate claim={claim} setClaim={setClaim} />
 
       {/* === Requirements Checklist (most prominent — health score + progress + items) === */}
       <div className="space-y-3">
@@ -837,9 +835,6 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
         <WatchOutsSection items={allWatchOuts} />
       )}
 
-      {/* === Patient Cost Calculator — collapsed by default; auto-expands when data present === */}
-      <ReviewCostEstimate claim={claim} setClaim={setClaim} />
-
       {/* === Clinical Narrative (after watch-outs) === Always shows the
           textarea + a prominent Generate / Regenerate button so the AI entry
           point is never hidden behind a branch. */}
@@ -881,24 +876,6 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
           </div>
         </div>
       </section>
-
-      {/* === Total + actions === */}
-      <div className="border-t border-border-warm pt-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="text-sm">
-          <span className="text-text-muted">Total fee:</span>
-          <span className="font-semibold text-text-strong ml-2">${totalFee.toFixed(2)}</span>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={onSaveDraft} className="px-4 py-2 text-sm border border-border-warm rounded-full text-text-strong hover:bg-cream-light">Save as Draft</button>
-          <button
-            onClick={onMarkReadyClick}
-            disabled={score === 'red' || !score}
-            className="px-4 py-2 text-sm bg-navy text-cream-light rounded-full hover:opacity-90 disabled:opacity-40"
-          >
-            Mark as Ready
-          </button>
-        </div>
-      </div>
     </div>
   )
 }

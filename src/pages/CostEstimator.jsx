@@ -53,7 +53,7 @@ export default function CostEstimator() {
   return (
     <div className="space-y-6 max-w-4xl">
       <header>
-        <h1 className="font-serif text-3xl text-text-strong">Cost Estimator</h1>
+        <h1 className="font-serif text-3xl text-text-strong">Cost Calculator</h1>
         <p className="text-text-muted mt-1">
           Quick patient-facing estimate — no AI, just math. Use this for phone inquiries or new-patient consults.
         </p>
