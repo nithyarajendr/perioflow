@@ -94,13 +94,6 @@ export function computeCostEstimate(procedures, inputs) {
     })
   }
 
-  if (i.perio_classification === 'unknown' || !i.perio_classification) {
-    warnings.push({
-      level: 'warning',
-      text: 'Perio classification unknown. Major (typically 50%) vs Basic (typically 80%) classification can change reimbursement substantially — verify with the payer.',
-    })
-  }
-
   if (practiceFeeTotal > HIGH_FEE_REVIEW_THRESHOLD) {
     warnings.push({
       level: 'info',

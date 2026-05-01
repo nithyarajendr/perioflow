@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { AlertTriangle, Info, Printer, Calculator } from 'lucide-react'
-import { computeCostEstimate, PERIO_CLASSIFICATIONS, emptyCostEstimate } from '../lib/cost'
+import { computeCostEstimate, emptyCostEstimate } from '../lib/cost'
 
 // These number inputs hold 2-5 digit values (deductibles, percentages,
 // dollar caps). Keeping them at a reasonable width — full-width looked
@@ -115,7 +115,7 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
             step="3"
             label="Patient's OON reimbursement rate"
             required
-            sublabel="Enter as a whole number (e.g. 50 for 50%, 80 for 80%)"
+            sublabel="Enter as a whole number (e.g. 50 for 50%, 80 for 80%) — get this from the patient's benefits verification call."
             hint="Percentage of UCR the plan pays for out-of-network periodontal procedures."
           >
             <div className={inputWrapperCls}>
@@ -146,24 +146,6 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
             </div>
           </Field>
 
-          {/* 5. Perio classification — affects the rate above. Last because
-              it's a shortcut that pre-fills the rate field. */}
-          <Field label="How does this plan classify periodontal procedures?" hint="Major vs basic can change reimbursement significantly. Picking one will pre-fill the OON reimbursement rate above; you can still edit it.">
-            <select
-              value={inputs.perio_classification || 'unknown'}
-              onChange={e => {
-                const next = e.target.value
-                const patch = { perio_classification: next }
-                if (next === 'basic') patch.oon_reimbursement_pct = 80
-                else if (next === 'major') patch.oon_reimbursement_pct = 50
-                update(patch)
-              }}
-              disabled={readOnly}
-              className={inputCls}
-            >
-              {PERIO_CLASSIFICATIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-            </select>
-          </Field>
         </div>
       </div>
 

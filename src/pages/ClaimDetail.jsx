@@ -12,6 +12,7 @@ import CostCalculatorCard from '../components/CostCalculatorCard'
 import CostEstimatePrintView from '../components/CostEstimatePrintView'
 import SectionTOC from '../components/SectionTOC'
 import UnsavedChangesDialog from '../components/UnsavedChangesDialog'
+import WatchOutsSection from '../components/WatchOutsSection'
 import {
   formatDate,
   formatMoney,
@@ -394,6 +395,11 @@ export default function ClaimDetail() {
           onRetryAi={retryAi}
         />
       </div>
+
+      {/* Watch-outs — pulled from the same requirements groups that power
+          the checklist. They live in the saved snapshot so they persist
+          with the claim. Default collapsed; click to expand. */}
+      <WatchOutsSection items={[...new Set((requirementGroups || []).flatMap(g => g.watch_outs || []))]} />
 
       <div id="procedures" className="scroll-mt-20">
       <Section title="Procedures">
