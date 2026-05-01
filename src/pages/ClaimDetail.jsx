@@ -16,7 +16,7 @@ import {
   formatDate,
   formatMoney,
   todayIso,
-  computeHealthScore,
+  computeHealthBreakdown,
   DENIAL_REASONS,
   QUADRANTS,
   isSnapshotValid,
@@ -42,6 +42,7 @@ export default function ClaimDetail() {
   const [printOpen, setPrintOpen] = useState(false)
   const [costPrintOpen, setCostPrintOpen] = useState(false)
   const [generatingNarrative, setGeneratingNarrative] = useState(false)
+  const [confirmReady, setConfirmReady] = useState(false)
 
   const claim = claims.find(c => c.claim_id === id)
   const payer = claim ? getPayer(claim.payer_id) : null
@@ -106,10 +107,11 @@ export default function ClaimDetail() {
       .catch(() => { snapshotInFlight.current = false })
   }, [claim, liveGroups, saveClaim])
 
-  const score = useMemo(
-    () => draft ? computeHealthScore(draft, requirementGroups) : null,
+  const breakdown = useMemo(
+    () => draft ? computeHealthBreakdown(draft, requirementGroups) : { status: null, unresolved: true },
     [draft, requirementGroups]
   )
+  const score = breakdown.status
 
   // Unsaved-changes guard: blocks in-app navigation + tab close while the user
   // has uncommitted edits. Computed here (before the not-found early return)
@@ -210,13 +212,21 @@ export default function ClaimDetail() {
   }
 
   // ---- Status transition handlers — commit pending draft + the status change in one save. ----
-  const onMarkReady = async () => {
+  const doMarkReady = async () => {
+    setConfirmReady(false)
     try {
       await saveClaim({ ...draft, status: 'ready' })
       show('Claim marked as ready', 'success')
     } catch {
       show('Save failed', 'error')
     }
+  }
+  // Green skips the modal, yellow requires confirmation (some recommended
+  // items unchecked or narrative not approved). Red is disabled at the
+  // button level so this never runs for it.
+  const onMarkReady = () => {
+    if (score === 'green') doMarkReady()
+    else if (score === 'yellow') setConfirmReady(true)
   }
   const onMarkSubmitted = async (date) => {
     try {
@@ -349,7 +359,7 @@ export default function ClaimDetail() {
         <RequirementsHealthSection
           groups={requirementGroups}
           checked={checked}
-          score={score}
+          breakdown={breakdown}
         />
       </div>
       <div id="documentation-checklist" className="scroll-mt-20 space-y-3">
@@ -546,6 +556,14 @@ export default function ClaimDetail() {
         onCancel={() => setConfirmRefresh(false)}
         onConfirm={onRefreshRequirements}
       />
+      <ConfirmDialog
+        open={confirmReady}
+        title="Submit anyway?"
+        message="Some recommended items are still unchecked. Submit anyway?"
+        confirmLabel="Mark as Ready"
+        onCancel={() => setConfirmReady(false)}
+        onConfirm={doMarkReady}
+      />
       {submitOpen && <SubmitModal claim={claim} onCancel={() => setSubmitOpen(false)} onConfirm={onMarkSubmitted} />}
       {outcomeOpen && <OutcomeModal onCancel={() => setOutcomeOpen(false)} onConfirm={onLogOutcome} />}
       <PrintView open={printOpen} onClose={() => setPrintOpen(false)} claim={claim} payer={payer} settings={settings} cdtCodes={cdtCodes} />
@@ -617,8 +635,8 @@ function StatusFlow({ status, outcome, outcomeDate, denialReason, score, onMarkR
     action = (
       <button
         onClick={onMarkReady}
-        disabled={score !== 'green'}
-        title={score !== 'green' ? 'Complete the requirements checklist + approve narrative first.' : ''}
+        disabled={score === 'red' || !score}
+        title={score === 'red' ? 'Check off all required items first.' : ''}
         className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-cream-light text-sm font-medium rounded-full hover:opacity-90 disabled:opacity-40"
       >
         <Check size={16} /> Mark as Ready

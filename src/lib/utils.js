@@ -115,19 +115,29 @@ export function getRequirementsForClaim(claim, requirements, cdtCodes) {
   return out
 }
 
-export function computeHealthScore(claim, requirementGroups) {
-  // If any group hasn't resolved yet (AI loading or errored), the requirements
-  // can't be evaluated — return null and let the UI render a loading/error
-  // state instead of a misleading "Ready to submit" green.
-  const unresolved = (requirementGroups || []).some(
-    g => g.source === 'ai-loading' || g.source === 'ai-error'
-  )
-  if (unresolved) return null
+// Detailed breakdown used by the health-score card. Counts required vs
+// recommended items separately and reports the narrative status as its own
+// independent signal so the UI can show what's done vs blocking.
+//
+// Status semantics:
+//   • green  — every required item is checked AND the narrative is approved
+//              (recommended items may or may not be checked).
+//   • yellow — every required item is checked, but either some recommended
+//              items are unchecked OR the narrative is not yet approved.
+//              Mark as Ready is allowed but with a confirmation modal.
+//   • red    — at least one required item is still unchecked. Mark as Ready
+//              is disabled.
+//   • null   — requirements haven't loaded yet (or errored) — UI should
+//              render a loading / error state instead of a status.
+export function computeHealthBreakdown(claim, requirementGroups) {
+  const groups = requirementGroups || []
+  const unresolved = groups.some(g => g.source === 'ai-loading' || g.source === 'ai-error')
+  if (unresolved) return { status: null, unresolved: true }
 
   const checked = new Set(claim.checklist || [])
   let requiredCount = 0, requiredChecked = 0
   let recommendedCount = 0, recommendedChecked = 0
-  for (const g of requirementGroups) {
+  for (const g of groups) {
     for (const it of g.items) {
       const isReq = it.priority === 'required' || it.denial_risk === 'high'
       if (isReq) {
@@ -141,10 +151,29 @@ export function computeHealthScore(claim, requirementGroups) {
   }
   const allRequiredChecked = requiredCount === 0 || requiredChecked === requiredCount
   const allRecommendedChecked = recommendedCount === 0 || recommendedChecked === recommendedCount
-  const narrativeOk = !!claim.narrative_approved && !!claim.generated_narrative?.trim()
-  if (allRequiredChecked && narrativeOk && allRecommendedChecked) return 'green'
-  if (allRequiredChecked && narrativeOk) return 'yellow'
-  return 'red'
+  const narrativeApproved = !!claim.narrative_approved && !!claim.generated_narrative?.trim()
+  const narrativePresent = !!claim.generated_narrative?.trim()
+
+  let status
+  if (!allRequiredChecked) status = 'red'
+  else if (allRecommendedChecked && narrativeApproved) status = 'green'
+  else status = 'yellow'
+
+  return {
+    status,
+    unresolved: false,
+    requiredCount,
+    requiredChecked,
+    recommendedCount,
+    recommendedChecked,
+    narrativeApproved,
+    narrativePresent,
+  }
+}
+
+// Back-compat: callers that just need the status string.
+export function computeHealthScore(claim, requirementGroups) {
+  return computeHealthBreakdown(claim, requirementGroups).status
 }
 
 export function buildNarrativePrompt({ claim, payerName, narrativeElements, cdtCodes }) {
