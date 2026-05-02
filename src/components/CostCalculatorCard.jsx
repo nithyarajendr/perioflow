@@ -103,7 +103,7 @@ function BannerNumber({ label, value, tone = 'navy' }) {
   return (
     <div className="rounded-lg bg-white/70 border border-teal/20 px-4 py-3">
       <div className="text-[11px] uppercase tracking-[0.16em] text-text-muted font-semibold">{label}</div>
-      <div className={`font-serif text-3xl sm:text-4xl leading-none mt-1.5 tabular-nums ${tones[tone]}`}>
+      <div className={`font-serif text-2xl sm:text-4xl leading-none mt-1.5 tabular-nums ${tones[tone]}`}>
         {value}
       </div>
     </div>

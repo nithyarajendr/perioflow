@@ -58,16 +58,16 @@ export default function SectionTOC({ sections }) {
       aria-label="Page sections"
       className="sticky top-0 z-20 -mx-2 px-2 py-3 bg-cream/90 backdrop-blur supports-[backdrop-filter]:bg-cream/75 border-b border-border-warm"
     >
-      <ul className="flex flex-wrap gap-1.5 text-sm">
+      <ul className="flex gap-1.5 text-sm overflow-x-auto no-scrollbar -mx-2 px-2 whitespace-nowrap">
         {sections.map(s => {
           const isActive = active === s.id
           return (
-            <li key={s.id}>
+            <li key={s.id} className="shrink-0">
               <a
                 href={`#${s.id}`}
                 onClick={e => onClick(e, s.id)}
                 className={
-                  'inline-block px-3 py-1.5 rounded-full transition-colors ' +
+                  'inline-block px-3 py-2.5 rounded-full transition-colors ' +
                   (isActive
                     ? 'bg-navy text-cream-light'
                     : 'text-text-muted hover:text-text-strong hover:bg-cream-light')

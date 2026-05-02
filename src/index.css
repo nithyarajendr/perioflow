@@ -62,3 +62,9 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 input[type="date"]:hover::-webkit-calendar-picker-indicator {
   opacity: 1;
 }
+
+/* Hide scrollbars on horizontal-scrolling pill rows (e.g. SectionTOC) so the
+   nav looks like a tap-and-swipe carousel on mobile rather than a scrollable
+   container with a visible bar. */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }

@@ -381,7 +381,7 @@ export default function ClaimDetail() {
             </span>
             <button
               onClick={() => setConfirmRefresh(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border-warm rounded-full text-text-strong hover:bg-cream-light"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs border border-border-warm rounded-full text-text-strong hover:bg-cream-light"
             >
               <RefreshCw size={12} /> Refresh Requirements
             </button>
@@ -403,7 +403,8 @@ export default function ClaimDetail() {
 
       <div id="procedures" className="scroll-mt-20">
       <Section title="Procedures">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto -mx-5 px-5">
+        <table className="w-full text-sm min-w-[480px]">
           <thead className="bg-cream-light text-left text-xs uppercase tracking-wider text-text-muted">
             <tr>
               <th className="px-3 py-2">CDT</th>
@@ -433,6 +434,7 @@ export default function ClaimDetail() {
             </tr>
           </tfoot>
         </table>
+        </div>
       </Section>
       </div>
 
@@ -640,7 +642,7 @@ function StatusFlow({ status, outcome, outcomeDate, denialReason, score, onMarkR
         onClick={onMarkReady}
         disabled={score === 'red' || !score}
         title={score === 'red' ? 'Check off all required items first.' : ''}
-        className="inline-flex items-center gap-2 px-5 py-2.5 bg-navy text-cream-light text-sm font-medium rounded-full hover:opacity-90 disabled:opacity-40"
+        className="inline-flex items-center gap-2 px-5 py-3 bg-navy text-cream-light text-sm font-medium rounded-full hover:opacity-90 disabled:opacity-40"
       >
         <Check size={16} /> Mark as Ready
       </button>
@@ -658,7 +660,7 @@ function StatusFlow({ status, outcome, outcomeDate, denialReason, score, onMarkR
     action = (
       <button
         onClick={onLogOutcome}
-        className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal text-white text-sm font-medium rounded-full hover:opacity-90"
+        className="inline-flex items-center gap-2 px-5 py-3 bg-teal text-white text-sm font-medium rounded-full hover:opacity-90"
       >
         <ClipboardCheck size={16} /> Log Outcome
       </button>
@@ -709,8 +711,8 @@ function SubmitModal({ claim, onCancel, onConfirm }) {
         <DateField value={date} onChange={e => setDate(e.target.value)}
           className="mt-3 w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
         <div className="flex justify-end gap-2 mt-5">
-          <button onClick={onCancel} className="px-4 py-2 text-sm border border-gray-300 rounded-md text-text-muted hover:bg-gray-50">Cancel</button>
-          <button onClick={() => onConfirm(date)} className="px-4 py-2 text-sm bg-navy text-white rounded-md hover:opacity-90">Confirm</button>
+          <button onClick={onCancel} className="px-4 py-3 text-sm border border-gray-300 rounded-md text-text-muted hover:bg-gray-50">Cancel</button>
+          <button onClick={() => onConfirm(date)} className="px-4 py-3 text-sm bg-navy text-white rounded-md hover:opacity-90">Confirm</button>
         </div>
       </div>
     </div>
@@ -766,11 +768,11 @@ function OutcomeModal({ onCancel, onConfirm }) {
         </label>
 
         <div className="flex justify-end gap-2 mt-5">
-          <button onClick={onCancel} className="px-4 py-2 text-sm border border-gray-300 rounded-md text-text-muted hover:bg-gray-50">Cancel</button>
+          <button onClick={onCancel} className="px-4 py-3 text-sm border border-gray-300 rounded-md text-text-muted hover:bg-gray-50">Cancel</button>
           <button
             onClick={() => onConfirm({ outcome, denial_reason: finalReason, denial_notes: notes })}
             disabled={outcome !== 'paid' && !finalReason}
-            className="px-4 py-2 text-sm bg-navy text-white rounded-md hover:opacity-90 disabled:opacity-40">
+            className="px-4 py-3 text-sm bg-navy text-white rounded-md hover:opacity-90 disabled:opacity-40">
             Save Outcome
           </button>
         </div>

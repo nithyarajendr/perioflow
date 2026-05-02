@@ -17,7 +17,7 @@ export default function PrintView({ open, onClose, claim, payer, settings, cdtCo
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-auto p-4 print-overlay">
-      <div className="bg-white max-w-3xl w-full rounded-lg shadow-xl my-8 print-sheet">
+      <div className="bg-white max-w-3xl w-full rounded-lg shadow-xl my-4 sm:my-8 print-sheet">
         <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 no-print">
           <div className="text-sm font-medium text-text-strong">Claim Packet — Preview</div>
           <div className="flex items-center gap-2">

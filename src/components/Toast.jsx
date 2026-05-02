@@ -21,7 +21,7 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={{ show }}>
       {children}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 max-w-sm">
+      <div className="fixed bottom-24 right-4 sm:bottom-6 sm:right-6 z-50 flex flex-col gap-2 max-w-sm">
         {toasts.map(t => (
           <ToastItem key={t.id} {...t} onClose={() => dismiss(t.id)} />
         ))}
@@ -31,18 +31,20 @@ export function ToastProvider({ children }) {
 }
 
 function ToastItem({ message, type, onClose }) {
+  // Fully opaque backgrounds with white text — readable against any page
+  // background, no translucency. Each type uses its own brand color.
   const styles = {
-    success: 'bg-success/10 border-success/40 text-success',
-    error: 'bg-danger/10 border-danger/40 text-danger',
-    info: 'bg-navy text-white border-navy',
-    warning: 'bg-warning/10 border-warning/40 text-yellow-700',
+    success: 'bg-success text-white border-success',
+    error:   'bg-danger text-white border-danger',
+    info:    'bg-navy text-white border-navy',
+    warning: 'bg-warning text-white border-warning',
   }
   const Icon = type === 'error' ? AlertCircle : CheckCircle2
   return (
     <div className={`flex items-start gap-2 px-4 py-3 rounded-md border shadow-lg ${styles[type] || styles.info}`}>
       <Icon size={18} className="shrink-0 mt-0.5" />
-      <div className="flex-1 text-sm leading-snug">{message}</div>
-      <button onClick={onClose} className="opacity-70 hover:opacity-100">
+      <div className="flex-1 text-sm leading-snug font-medium">{message}</div>
+      <button onClick={onClose} className="opacity-80 hover:opacity-100" aria-label="Dismiss">
         <X size={16} />
       </button>
     </div>

@@ -17,13 +17,13 @@ export default function ConfirmDialog({ open, title, message, confirmLabel = 'Co
         <div className="flex justify-end gap-2 mt-6">
           <button
             onClick={onCancel}
-            className="px-4 py-2 text-sm font-medium text-text-muted border border-gray-300 rounded-md hover:bg-gray-50"
+            className="px-4 py-3 text-sm font-medium text-text-muted border border-gray-300 rounded-md hover:bg-gray-50"
           >
             {cancelLabel}
           </button>
           <button
             onClick={onConfirm}
-            className={`px-4 py-2 text-sm font-medium text-white rounded-md ${danger ? 'bg-danger hover:opacity-90' : 'bg-navy hover:opacity-90'}`}
+            className={`px-4 py-3 text-sm font-medium text-white rounded-md ${danger ? 'bg-danger hover:opacity-90' : 'bg-navy hover:opacity-90'}`}
           >
             {confirmLabel}
           </button>
