@@ -242,7 +242,7 @@ function Stepper({ current, onJump }) {
               onClick={() => onJump(s.n)}
               className={`flex items-center gap-2 ${active ? 'text-text-strong' : 'text-text-muted'}`}
             >
-              <span className={`flex items-center justify-center w-7 h-7 rounded-full text-xs font-medium ${
+              <span className={`flex items-center justify-center w-9 h-9 rounded-full text-sm font-medium ${
                 done ? 'bg-teal text-white' : active ? 'bg-navy text-white' : 'bg-gray-200 text-text-muted'
               }`}>
                 {done ? <Check size={14} /> : s.n}
@@ -434,7 +434,7 @@ function ProcedureRow({ idx, proc, cdtCodes, getFeeForCode, onUpdate, onRemove }
             {QUADRANTS.map(q => {
               const checked = proc.quadrants?.includes(q.key)
               return (
-                <label key={q.key} className={`px-3 py-1.5 border rounded-md text-sm cursor-pointer ${checked ? 'bg-teal/15 border-teal text-teal' : 'border-gray-300 text-text-muted hover:bg-gray-50'}`}>
+                <label key={q.key} className={`px-3 py-2.5 border rounded-md text-sm cursor-pointer ${checked ? 'bg-teal/15 border-teal text-teal' : 'border-gray-300 text-text-muted hover:bg-gray-50'}`}>
                   <input type="checkbox" className="hidden" checked={checked} onChange={(e) => {
                     const set = new Set(proc.quadrants || [])
                     if (e.target.checked) set.add(q.key); else set.delete(q.key)

@@ -50,21 +50,21 @@ export default function UnsavedChangesDialog({
           <button
             onClick={handleCancel}
             disabled={saving}
-            className="px-4 py-2 text-sm font-medium text-text-muted border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+            className="px-4 py-3 text-sm font-medium text-text-muted border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={handleDiscardAndLeave}
             disabled={saving}
-            className="px-4 py-2 text-sm font-medium text-white rounded-md bg-danger hover:opacity-90 disabled:opacity-50"
+            className="px-4 py-3 text-sm font-medium text-white rounded-md bg-danger hover:opacity-90 disabled:opacity-50"
           >
             {discardLabel}
           </button>
           <button
             onClick={handleSaveAndLeave}
             disabled={saving}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white rounded-md bg-navy hover:opacity-90 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-4 py-3 text-sm font-medium text-white rounded-md bg-navy hover:opacity-90 disabled:opacity-50"
           >
             {saving && <Loader2 size={14} className="animate-spin" />}
             {saving ? 'Saving…' : saveLabel}

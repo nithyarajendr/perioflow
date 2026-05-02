@@ -51,7 +51,8 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
               <h4 className="text-sm font-semibold text-text-strong mb-1">Payer's usual & customary rate per procedure (UCR)</h4>
               <p className="text-xs text-text-muted mb-3">Optional — leave blank to use the practice fee as the UCR.</p>
               <div className="border border-border-warm rounded-md overflow-hidden">
-                <table className="w-full text-sm">
+                <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[480px]">
                   <thead className="bg-cream-light text-xs uppercase tracking-wider text-text-muted">
                     <tr>
                       <th className="px-3 py-2 text-left w-24">Code</th>
@@ -78,7 +79,7 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
                                 onChange={e => updateUcr(p.cdt_code, e.target.value)}
                                 disabled={readOnly}
                                 placeholder={(Number(p.fee) || 0).toString()}
-                                className="w-full pl-5 pr-2 py-1 border border-border-warm rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal/40 focus:border-teal"
+                                className="w-full pl-5 pr-2 py-2 border border-border-warm rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal/40 focus:border-teal"
                               />
                             </div>
                           </td>
@@ -87,6 +88,7 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
                     })}
                   </tbody>
                 </table>
+                </div>
               </div>
               </div>
             </div>
@@ -294,7 +296,7 @@ function SummaryNumber({ label, value, tone = 'navy' }) {
   return (
     <div className="rounded-lg bg-white border border-teal/20 px-4 py-3">
       <div className="text-[11px] uppercase tracking-[0.16em] text-text-muted font-semibold">{label}</div>
-      <div className={`font-serif text-3xl sm:text-4xl leading-none mt-1.5 tabular-nums ${tones[tone]}`}>
+      <div className={`font-serif text-2xl sm:text-4xl leading-none mt-1.5 tabular-nums ${tones[tone]}`}>
         ${value.toFixed(2)}
       </div>
     </div>

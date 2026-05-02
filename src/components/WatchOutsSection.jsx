@@ -20,9 +20,19 @@ export default function WatchOutsSection({ items }) {
         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-warning/15 transition-colors"
       >
         <AlertTriangle size={18} className="text-warning shrink-0" />
-        <h3 className="font-serif text-lg text-text-strong flex-1">
-          Watch-outs <span className="text-text-muted text-sm font-sans">({items.length} item{items.length === 1 ? '' : 's'})</span>
-        </h3>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-serif text-lg text-text-strong">
+            Watch-outs <span className="text-text-muted text-sm font-sans">({items.length} item{items.length === 1 ? '' : 's'})</span>
+          </h3>
+          {/* Preview of the first item when collapsed — gives the user a
+              taste of what's inside without having to expand. Hidden when
+              already open since the full list is right below. */}
+          {!open && items[0] && (
+            <p className="text-xs text-text-muted mt-0.5 truncate">
+              <span className="text-text-muted/80">— </span>{items[0]}
+            </p>
+          )}
+        </div>
         <Chevron size={18} className="text-text-muted shrink-0" />
       </button>
       {open && (
