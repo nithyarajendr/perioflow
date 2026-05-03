@@ -227,7 +227,7 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mt-3">
               <SummaryNumber label="Total Fee" value={estimate.practiceFeeTotal} tone="navy" />
               <SummaryNumber label="Insurance Pays" value={estimate.finalReimbursement} tone="success" />
-              <SummaryNumber label="Patient Pays" value={estimate.patientOOP} tone="navy" />
+              <SummaryNumber label="Patient Pays" value={estimate.patientOOP} tone="patient" />
             </div>
           </Step>
         </ol>
@@ -301,7 +301,8 @@ function Step({ n, label, children }) {
 function SummaryNumber({ label, value, tone = 'navy' }) {
   const tones = {
     navy: 'text-text-strong',
-    success: 'text-success',
+    success: 'text-success',  // sage green — Insurance Pays
+    patient: 'text-danger',   // terracotta red — Patient Pays (visually distinct from Total Fee)
   }
   return (
     <div className="rounded-lg bg-white border border-teal/20 px-4 py-3">

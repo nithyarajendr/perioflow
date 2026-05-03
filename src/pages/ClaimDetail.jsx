@@ -456,6 +456,8 @@ export default function ClaimDetail() {
               value={draft.clinical_findings.probing_depths?.[q.clinicalKey]}
               onSave={v => updateProbingDepth(q.clinicalKey, normalizeProbingDepth(v))}
               placeholder="e.g., 5-8mm"
+              inputMode="text"
+              pattern="[0-9-]*"
             />
           ))}
           <EditableItem
@@ -887,7 +889,7 @@ const inlineFieldCls =
 
 const inlineDateCls = inlineFieldCls + ' max-w-[180px]'
 
-function EditableItem({ label, value, onSave, type = 'text', placeholder, suffix, multiline, full }) {
+function EditableItem({ label, value, onSave, type = 'text', placeholder, suffix, multiline, full, inputMode, pattern }) {
   const [draft, setDraft] = useState(value ?? '')
   // Re-sync local draft if the upstream value changes (e.g. saved from another control).
   useEffect(() => { setDraft(value ?? '') }, [value])
@@ -920,8 +922,10 @@ function EditableItem({ label, value, onSave, type = 'text', placeholder, suffix
             placeholder={placeholder}
             className={inlineFieldCls + (suffix ? ' pr-12' : '')}
             autoComplete="off"
-            autoCorrect={type === 'number' ? 'off' : undefined}
-            inputMode={type === 'number' ? 'decimal' : undefined}
+            autoCorrect={type === 'number' || inputMode ? 'off' : undefined}
+            autoCapitalize={inputMode ? 'off' : undefined}
+            inputMode={inputMode || (type === 'number' ? 'decimal' : undefined)}
+            pattern={pattern}
           />
         )}
         {suffix && !multiline && (
