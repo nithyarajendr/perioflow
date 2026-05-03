@@ -5,8 +5,10 @@ import { computeCostEstimate, emptyCostEstimate } from '../lib/cost'
 // These number inputs hold 2-5 digit values (deductibles, percentages,
 // dollar caps). Keeping them at a reasonable width — full-width looked
 // broken with so much trailing whitespace.
+// text-base (16px) on the input itself prevents iOS Safari from auto-zooming
+// the page when the field gains focus (anything < 16px triggers zoom).
 const inputCls =
-  'w-full max-w-[300px] px-3 py-2 border border-border-warm rounded-md text-sm bg-white ' +
+  'w-full max-w-[300px] px-3 py-2 border border-border-warm rounded-md text-base bg-white ' +
   'focus:outline-none focus:ring-2 focus:ring-teal/40 focus:border-teal'
 
 // Wrapper around the input + its $ / % decoration. Same max-width as the
@@ -79,7 +81,9 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
                                 onChange={e => updateUcr(p.cdt_code, e.target.value)}
                                 disabled={readOnly}
                                 placeholder={(Number(p.fee) || 0).toString()}
-                                className="w-full pl-5 pr-2 py-2 border border-border-warm rounded text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal/40 focus:border-teal"
+                                className="w-full pl-5 pr-2 py-2 border border-border-warm rounded text-base text-right focus:outline-none focus:ring-2 focus:ring-teal/40 focus:border-teal"
+                                autoComplete="off"
+                                inputMode="decimal"
                               />
                             </div>
                           </td>
@@ -105,6 +109,8 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
                 disabled={readOnly}
                 placeholder="0"
                 className={inputCls + ' pl-7'}
+                autoComplete="off"
+                inputMode="decimal"
               />
             </div>
           </Field>
@@ -128,6 +134,8 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
                 disabled={readOnly}
                 placeholder="Enter percentage, e.g. 50"
                 className={inputCls + ' pr-14'}
+                autoComplete="off"
+                inputMode="numeric"
               />
               <span className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center px-3 py-1.5 rounded-md bg-teal/15 text-teal font-bold text-base leading-none pointer-events-none">%</span>
             </div>
@@ -144,6 +152,8 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
                 disabled={readOnly}
                 placeholder="e.g., 2000"
                 className={inputCls + ' pl-7'}
+                autoComplete="off"
+                inputMode="decimal"
               />
             </div>
           </Field>

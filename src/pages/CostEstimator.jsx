@@ -5,8 +5,10 @@ import CostEstimatorPanel from '../components/CostEstimatorPanel'
 import CostEstimatePrintView from '../components/CostEstimatePrintView'
 import { emptyCostEstimate } from '../lib/cost'
 
+// text-base (16px) on the input itself prevents iOS Safari from auto-zooming
+// the page when the field gains focus.
 const inputCls =
-  'w-full px-3 py-2 border border-border-warm rounded-md text-sm bg-white ' +
+  'w-full px-3 py-2 border border-border-warm rounded-md text-base bg-white ' +
   'focus:outline-none focus:ring-2 focus:ring-teal/40 focus:border-teal'
 
 /**
@@ -82,6 +84,8 @@ export default function CostEstimator() {
                 placeholder="Patient ID or initials"
                 value={adHocPatient}
                 onChange={e => setAdHocPatient(e.target.value)}
+                autoComplete="off"
+                autoCorrect="off"
               />
             </label>
           )}
@@ -154,10 +158,12 @@ export default function CostEstimator() {
 }
 
 function AdHocProcRow({ proc, cdtCodes, onPickCode, onChangeFee, onRemove }) {
+  // Stack on mobile (each field full width) so the CDT dropdown isn't cut
+  // off on narrow viewports; row layout on sm+ where there's space.
   return (
-    <div className="grid grid-cols-12 gap-2 items-center">
+    <div className="flex flex-col sm:grid sm:grid-cols-12 gap-2 sm:items-center">
       <select
-        className={inputCls + ' col-span-7 font-mono'}
+        className={inputCls + ' sm:col-span-7 font-mono'}
         value={proc.cdt_code || ''}
         onChange={e => onPickCode(e.target.value)}
       >
@@ -166,7 +172,7 @@ function AdHocProcRow({ proc, cdtCodes, onPickCode, onChangeFee, onRemove }) {
           <option key={c.code} value={c.code}>{c.code} — {c.description}</option>
         ))}
       </select>
-      <div className="col-span-4 relative">
+      <div className="sm:col-span-4 relative">
         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-sm">$</span>
         <input
           type="number" min="0" step="0.01"
@@ -174,9 +180,11 @@ function AdHocProcRow({ proc, cdtCodes, onPickCode, onChangeFee, onRemove }) {
           onChange={e => onChangeFee(e.target.value)}
           placeholder="Fee"
           className={inputCls + ' pl-7'}
+          autoComplete="off"
+          inputMode="decimal"
         />
       </div>
-      <div className="col-span-1">
+      <div className="sm:col-span-1 flex justify-end">
         {onRemove && (
           <button onClick={onRemove} className="p-2 text-text-muted hover:text-danger" aria-label="Remove">
             <Trash2 size={16} />

@@ -602,20 +602,23 @@ export default function ClaimDetail() {
 
 function FloatingSaveBar({ onSave, onDiscard }) {
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 bg-navy text-cream-light shadow-2xl rounded-full px-5 py-3 flex items-center gap-3 max-w-[calc(100vw-2rem)]">
-      <span className="text-sm">You have unsaved changes</span>
-      <div className="flex gap-2">
+    // Compact on mobile (smaller text + tighter padding) so the bar is a
+    // thin strip, not a bulky block; original desktop sizing preserved
+    // via sm: variants.
+    <div className="fixed bottom-3 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 bg-navy text-cream-light shadow-2xl rounded-full px-3 py-2 sm:px-5 sm:py-3 flex items-center gap-2 sm:gap-3 max-w-[calc(100vw-1rem)]">
+      <span className="text-xs sm:text-sm whitespace-nowrap">Unsaved changes</span>
+      <div className="flex gap-1.5 sm:gap-2">
         <button
           onClick={onDiscard}
-          className="px-3 py-1.5 text-sm border border-cream-light/30 rounded-full text-cream-light/90 hover:bg-cream-light/10"
+          className="px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs sm:text-sm border border-cream-light/30 rounded-full text-cream-light/90 hover:bg-cream-light/10"
         >
           Discard
         </button>
         <button
           onClick={onSave}
-          className="px-4 py-1.5 text-sm bg-teal text-white font-medium rounded-full hover:opacity-90"
+          className="px-3 py-1 sm:px-4 sm:py-1.5 text-xs sm:text-sm bg-teal text-white font-medium rounded-full hover:opacity-90"
         >
-          Save Changes
+          Save
         </button>
       </div>
     </div>
@@ -746,7 +749,7 @@ function OutcomeModal({ onCancel, onConfirm }) {
             <label className="block">
               <span className="block text-sm font-medium text-text-strong mb-1">Reason</span>
               <select value={reason} onChange={e => setReason(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-base">
                 <option value="">Select a reason…</option>
                 {DENIAL_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
@@ -755,7 +758,8 @@ function OutcomeModal({ onCancel, onConfirm }) {
               <label className="block">
                 <span className="block text-sm font-medium text-text-strong mb-1">Specify reason</span>
                 <input value={otherReason} onChange={e => setOtherReason(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-base"
+                  autoComplete="off" />
               </label>
             )}
           </div>
@@ -764,7 +768,8 @@ function OutcomeModal({ onCancel, onConfirm }) {
         <label className="block mt-4">
           <span className="block text-sm font-medium text-text-strong mb-1">Additional Notes</span>
           <textarea rows={3} value={notes} onChange={e => setNotes(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-base"
+            autoComplete="off" />
         </label>
 
         <div className="flex justify-end gap-2 mt-5">
@@ -873,8 +878,10 @@ function EditHint() {
 // input as plain text (no popups). Saves are debounced to blur (text/textarea)
 // or fire on change (date/checkbox).
 
+// text-base (16px) on mobile so iOS doesn't auto-zoom on focus; the inline
+// edit affordance still reads as compact at desktop sizes via md:text-sm.
 const inlineFieldCls =
-  'w-full px-2 py-1 text-sm bg-transparent border border-transparent rounded transition-colors ' +
+  'w-full px-2 py-1 text-base md:text-sm bg-transparent border border-transparent rounded transition-colors ' +
   'hover:bg-cream-light hover:border-border-warm ' +
   'focus:bg-white focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/30'
 
@@ -902,6 +909,7 @@ function EditableItem({ label, value, onSave, type = 'text', placeholder, suffix
             onBlur={onBlur}
             placeholder={placeholder}
             className={inlineFieldCls + ' resize-y'}
+            autoComplete="off"
           />
         ) : (
           <input
@@ -911,6 +919,9 @@ function EditableItem({ label, value, onSave, type = 'text', placeholder, suffix
             onBlur={onBlur}
             placeholder={placeholder}
             className={inlineFieldCls + (suffix ? ' pr-12' : '')}
+            autoComplete="off"
+            autoCorrect={type === 'number' ? 'off' : undefined}
+            inputMode={type === 'number' ? 'decimal' : undefined}
           />
         )}
         {suffix && !multiline && (
@@ -987,6 +998,7 @@ function InlineNarrative({ value, approved, onSave, onApprove, onGenerate, gener
         placeholder="No narrative yet — paste or write one here, or click Generate Narrative with Claude."
         className={inlineFieldCls + ' font-serif text-base leading-relaxed resize-y min-h-[160px]'}
         autoFocus={!value}
+        autoComplete="off"
       />
       <div className="flex flex-wrap gap-2">
         {!approved && (
