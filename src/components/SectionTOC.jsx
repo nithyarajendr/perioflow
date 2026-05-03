@@ -56,7 +56,11 @@ export default function SectionTOC({ sections }) {
   return (
     <nav
       aria-label="Page sections"
-      className="sticky top-0 z-20 -mx-2 px-2 py-3 bg-cream/90 backdrop-blur supports-[backdrop-filter]:bg-cream/75 border-b border-border-warm"
+      // top-12 on mobile so it sticks BELOW the navy hamburger top bar
+      // (which is sticky top-0 z-30 and ~48px tall). top-0 on md+ where
+      // there's no mobile top bar. shadow-sm on mobile so the two
+      // strips read as one chrome unit.
+      className="sticky top-12 md:top-0 z-20 -mx-2 px-2 py-3 bg-cream/90 backdrop-blur supports-[backdrop-filter]:bg-cream/75 border-b border-border-warm shadow-sm md:shadow-none"
     >
       <ul className="flex gap-1.5 text-sm overflow-x-auto no-scrollbar -mx-2 px-2 whitespace-nowrap">
         {sections.map(s => {

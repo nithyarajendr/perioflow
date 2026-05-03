@@ -3,13 +3,23 @@ import { Calendar } from 'lucide-react'
 import { todayIso } from '../lib/utils'
 
 /**
- * Hybrid date field — visually unmistakable as a date input (prominent
- * calendar icon on the left, tinted background, distinct border) while still
- * allowing both:
- *   • Click anywhere in the field → opens the platform date picker via
- *     showPicker() on a hidden <input type="date">.
- *   • Free-form typing in MM/DD/YYYY (also tolerates dashes, dots, 2-digit
- *     years) — parses on blur, silently reverts on invalid.
+ * Hybrid date field, cross-platform:
+ *
+ *   • Desktop (mouse + keyboard) — visible text input is editable. Click
+ *     the field to open the platform date picker via showPicker(). Type
+ *     MM/DD/YYYY directly; we parse on blur, silently revert on invalid.
+ *
+ *   • Touch devices (iPhone, iPad, Android) — the hidden <input type="date">
+ *     is the actual tap target. Tapping the field opens the OS's native
+ *     date picker on EVERY mobile browser (iOS Safari/Chrome, Android
+ *     Chrome/Firefox/Samsung Internet) without relying on showPicker(),
+ *     which is version-gated and unreliable. The visible text input is
+ *     readOnly so it doesn't pop the virtual keyboard.
+ *
+ * Touch detection uses `(hover: none) and (pointer: coarse)` — true on
+ * every phone/tablet, false on every desktop (including touchscreens that
+ * also have a mouse). Reads on mount; no SSR concerns since this app is
+ * client-rendered.
  *
  * The onChange contract matches `<input type="date">`: the event's
  * target.value is the canonical ISO YYYY-MM-DD.
@@ -17,8 +27,15 @@ import { todayIso } from '../lib/utils'
 export default function DateField({ value, onChange, className = '', defaultEmpty = false, ...rest }) {
   const effectiveIso = value || (defaultEmpty ? '' : todayIso())
   const [text, setText] = useState(isoToDisplay(effectiveIso))
+  const [isTouch, setIsTouch] = useState(false)
   const hiddenRef = useRef(null)
   const textRef = useRef(null)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      setIsTouch(window.matchMedia('(hover: none) and (pointer: coarse)').matches)
+    }
+  }, [])
 
   useEffect(() => { setText(isoToDisplay(effectiveIso)) }, [effectiveIso])
 
@@ -49,10 +66,13 @@ export default function DateField({ value, onChange, className = '', defaultEmpt
     }
   }
 
-  // Click anywhere in the field opens the picker AND focuses the text input
-  // (so once the user dismisses the picker with Escape, they can immediately
-  // type a date instead).
+  // Desktop only: click anywhere in the field opens the picker AND focuses
+  // the text input (so once the picker is dismissed with Esc, the user can
+  // immediately type a date instead). On touch devices we don't bind this
+  // — the hidden native input handles the tap directly, opening the OS
+  // picker without any JS.
   const onWrapperClick = (e) => {
+    if (isTouch) return
     if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return
     textRef.current?.focus()
     openPicker()
@@ -70,27 +90,32 @@ export default function DateField({ value, onChange, className = '', defaultEmpt
         ref={textRef}
         type="text"
         value={text}
-        onChange={e => setText(e.target.value)}
-        onBlur={commitTyped}
-        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitTyped() } }}
+        onChange={isTouch ? undefined : (e => setText(e.target.value))}
+        onBlur={isTouch ? undefined : commitTyped}
+        onKeyDown={isTouch ? undefined : (e => { if (e.key === 'Enter') { e.preventDefault(); commitTyped() } })}
+        readOnly={isTouch}
         placeholder="MM/DD/YYYY"
-        inputMode="numeric"
+        // inputMode="text" so the desktop full keyboard (with /) appears
+        // when the user types. On touch devices the field is readOnly so
+        // the keyboard never opens anyway.
+        inputMode="text"
         className="flex-1 min-w-0 bg-transparent border-none outline-none px-2 py-2 pl-8 text-sm text-text-strong placeholder:text-text-muted focus:ring-0"
         {...rest}
       />
-      {/* Hidden native date input — covers the full visible field so the
-          OS picker overlay anchors to the field's bounding box instead of
-          a 0-size element at the right edge (which on mobile pushed the
-          calendar pop-up off-screen). pointer-events-none so taps still
-          go to the visible text input above. */}
+      {/* Hidden native date input. On TOUCH devices it's tappable and covers
+          the field (opacity-0), so taps land on it and open the OS native
+          picker — works on iOS Safari/Chrome, Android Chrome/Firefox/Samsung
+          Internet, no JS, no version dependencies.
+          On DESKTOP it stays pointer-events-none (the visible text input
+          gets the clicks for typing; showPicker() opens the picker). */}
       <input
         ref={hiddenRef}
         type="date"
         value={effectiveIso}
         onChange={onChange}
-        className="absolute inset-0 w-full h-full opacity-0 pointer-events-none"
-        tabIndex={-1}
-        aria-hidden="true"
+        className={`absolute inset-0 w-full h-full opacity-0 ${isTouch ? 'cursor-pointer' : 'pointer-events-none'}`}
+        tabIndex={isTouch ? 0 : -1}
+        aria-hidden={!isTouch}
       />
     </span>
   )
