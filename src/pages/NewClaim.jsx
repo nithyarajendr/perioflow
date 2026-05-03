@@ -29,13 +29,15 @@ import { useResolvedRequirements } from '../lib/useResolvedRequirements'
 import { useUnsavedChangesGuard } from '../lib/useUnsavedChangesGuard'
 
 const STEPS = [
-  { n: 1, label: 'Patient & Insurance' },
-  { n: 2, label: 'Procedures' },
-  { n: 3, label: 'Clinical Findings' },
-  { n: 4, label: 'Review & Generate' },
+  { n: 1, label: 'Patient & Insurance', short: 'Patient' },
+  { n: 2, label: 'Procedures',          short: 'Procedures' },
+  { n: 3, label: 'Clinical Findings',   short: 'Findings' },
+  { n: 4, label: 'Review & Generate',   short: 'Review' },
 ]
 
-const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-teal/40 focus:border-teal'
+// text-base (16px) on the input itself prevents iOS Safari from auto-zooming
+// the page when the field gains focus (anything < 16px triggers zoom).
+const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-md text-base focus:outline-none focus:ring-2 focus:ring-teal/40 focus:border-teal'
 
 function emptyClaim() {
   return {
@@ -231,25 +233,28 @@ export default function NewClaim() {
 
 function Stepper({ current, onJump }) {
   return (
-    <ol className="flex items-center gap-2">
+    <ol className="flex items-start gap-2">
       {STEPS.map((s, i) => {
         const done = current > s.n
         const active = current === s.n
         return (
-          <li key={s.n} className="flex-1 flex items-center gap-2">
+          <li key={s.n} className="flex-1 flex items-start gap-2">
             <button
               type="button"
               onClick={() => onJump(s.n)}
-              className={`flex items-center gap-2 ${active ? 'text-text-strong' : 'text-text-muted'}`}
+              className={`flex flex-col md:flex-row items-center gap-1 md:gap-2 min-w-0 ${active ? 'text-text-strong' : 'text-text-muted'}`}
             >
-              <span className={`flex items-center justify-center w-9 h-9 rounded-full text-sm font-medium ${
+              <span className={`flex items-center justify-center w-9 h-9 rounded-full text-sm font-medium shrink-0 ${
                 done ? 'bg-teal text-white' : active ? 'bg-navy text-white' : 'bg-gray-200 text-text-muted'
               }`}>
                 {done ? <Check size={14} /> : s.n}
               </span>
+              {/* Short label under the circle on mobile (text-xs centered);
+                  full label inline on md+. */}
+              <span className="text-xs md:text-sm font-medium md:hidden text-center leading-tight">{s.short}</span>
               <span className="text-sm font-medium hidden md:inline">{s.label}</span>
             </button>
-            {i < STEPS.length - 1 && <div className={`h-px flex-1 ${done ? 'bg-teal' : 'bg-gray-200'}`} />}
+            {i < STEPS.length - 1 && <div className={`h-px flex-1 mt-4 md:mt-0 ${done ? 'bg-teal' : 'bg-gray-200'}`} />}
           </li>
         )
       })}
@@ -270,12 +275,14 @@ function Step1({ claim, setClaim }) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <Field label="Patient ID / Reference">
+      <Field label="Patient ID / Reference (optional)">
         <input
           className={inputCls}
-          placeholder="Patient ID, initials, or any reference (optional)"
+          placeholder="Patient ID, initials, or any reference"
           value={claim.patient_name}
           onChange={e => setClaim({ ...claim, patient_name: e.target.value })}
+          autoComplete="off"
+          autoCorrect="off"
         />
       </Field>
       <Field label="Date of Service">
@@ -291,6 +298,8 @@ function Step1({ claim, setClaim }) {
           placeholder="Search payers…"
           value={search}
           onChange={e => setSearch(e.target.value)}
+          autoComplete="off"
+          autoCorrect="off"
         />
         <div className="mt-2 border border-gray-200 rounded-md max-h-56 overflow-y-auto divide-y divide-gray-100">
           {filtered.map(p => {
@@ -325,16 +334,24 @@ function Step2({ claim, setClaim, totalFee }) {
   const { cdtCodes, getFeeForCode } = useData()
   const warnings = useMemo(() => checkBundlingConflicts(claim.procedures), [claim.procedures])
 
+  // Functional updaters — two rapid mobile taps (pointerdown + click on the
+  // same target) can't clobber each other with stale closure state. This was
+  // the root cause of the "second procedure only saves the fee" bug on iOS:
+  // the second update call read a stale `claim.procedures` and overwrote the
+  // first update's cdt_code with the original empty string while preserving
+  // the fee from the second patch.
   const updateProc = (idx, patch) => {
-    const next = [...claim.procedures]
-    next[idx] = { ...next[idx], ...patch }
-    setClaim({ ...claim, procedures: next })
+    setClaim(prev => {
+      const next = [...prev.procedures]
+      next[idx] = { ...next[idx], ...patch }
+      return { ...prev, procedures: next }
+    })
   }
   const removeProc = (idx) => {
-    setClaim({ ...claim, procedures: claim.procedures.filter((_, i) => i !== idx) })
+    setClaim(prev => ({ ...prev, procedures: prev.procedures.filter((_, i) => i !== idx) }))
   }
   const addProc = () => {
-    setClaim({ ...claim, procedures: [...claim.procedures, { cdt_code: '', quadrants: [], tooth_numbers: '', fee: '' }] })
+    setClaim(prev => ({ ...prev, procedures: [...prev.procedures, { cdt_code: '', quadrants: [], tooth_numbers: '', fee: '' }] }))
   }
 
   return (
@@ -417,7 +434,7 @@ function ProcedureRow({ idx, proc, cdtCodes, getFeeForCode, onUpdate, onRemove }
           </div>
         ) : (
           <>
-            <input className={inputCls} placeholder="Search by code or description (e.g., D4341 or scaling)…" value={search} onChange={e => setSearch(e.target.value)} />
+            <input className={inputCls} placeholder="Search by code or description (e.g., D4341 or scaling)…" value={search} onChange={e => setSearch(e.target.value)} autoComplete="off" autoCorrect="off" autoCapitalize="off" />
             <div className="mt-2 border border-gray-200 rounded-md max-h-56 overflow-y-auto divide-y divide-gray-100">
               {matches.map(c => {
                 const fee = getFeeForCode?.(c.code)
@@ -471,7 +488,7 @@ function ProcedureRow({ idx, proc, cdtCodes, getFeeForCode, onUpdate, onRemove }
 
       {cdt?.requires_tooth_numbers && (
         <Field label="Tooth Numbers">
-          <input className={inputCls} placeholder="Comma-separated, e.g., 3, 14, 19" value={proc.tooth_numbers || ''} onChange={e => onUpdate({ tooth_numbers: e.target.value })} />
+          <input className={inputCls} placeholder="Comma-separated, e.g., 3, 14, 19" value={proc.tooth_numbers || ''} onChange={e => onUpdate({ tooth_numbers: e.target.value })} autoComplete="off" autoCorrect="off" inputMode="numeric" />
         </Field>
       )}
 
@@ -486,6 +503,8 @@ function ProcedureRow({ idx, proc, cdtCodes, getFeeForCode, onUpdate, onRemove }
             placeholder={cdt && defaultFeeForCode == null ? 'No default — set one in Settings → Fee Schedule' : 'e.g., 350'}
             value={proc.fee}
             onChange={e => onUpdate({ fee: e.target.value })}
+            autoComplete="off"
+            inputMode="decimal"
           />
         </div>
         {cdt && (
@@ -525,6 +544,15 @@ function Step3({ claim, setClaim, validationAttempted }) {
     <div className="space-y-5">
       <SmartPaste claim={claim} setClaim={setClaim} />
 
+      {/* Visual divider so it's obvious that Smart Paste is one option and
+          the manual form below is the other — same pattern as login pages
+          dividing social sign-in from email/password. */}
+      <div className="flex items-center gap-3 text-xs uppercase tracking-[0.18em] text-text-muted">
+        <span className="flex-1 h-px bg-border-warm" />
+        <span>Or fill in manually</span>
+        <span className="flex-1 h-px bg-border-warm" />
+      </div>
+
       <p className="text-sm text-text-muted">
         Fields marked with <span className="text-danger font-semibold">*</span> are required.
       </p>
@@ -537,6 +565,7 @@ function Step3({ claim, setClaim, validationAttempted }) {
           value={cf.diagnosis}
           onChange={e => setCf({ diagnosis: e.target.value })}
           placeholder="e.g., Generalized Stage III, Grade B periodontitis"
+          autoComplete="off"
         />
         <datalist id="diagnosis-suggestions">
           {DIAGNOSIS_SUGGESTIONS.map(d => <option key={d} value={d} />)}
@@ -563,6 +592,9 @@ function Step3({ claim, setClaim, validationAttempted }) {
                     setCf({ probing_depths: { ...cf.probing_depths, [q.clinicalKey]: normalized } })
                   }
                 }}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
               />
             </label>
           ))}
@@ -578,6 +610,8 @@ function Step3({ claim, setClaim, validationAttempted }) {
             placeholder="e.g., 82"
             value={cf.bop_percentage}
             onChange={e => setCf({ bop_percentage: e.target.value })}
+            autoComplete="off"
+            inputMode="numeric"
           />
           <span className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center px-2.5 py-1 rounded-md bg-teal/15 text-teal font-semibold text-base leading-none pointer-events-none">%</span>
         </div>
@@ -585,14 +619,14 @@ function Step3({ claim, setClaim, validationAttempted }) {
       </Field>
 
       <Field label="Bone Loss">
-        <input list="bone-loss-suggestions" className={inputCls} value={cf.bone_loss} onChange={e => setCf({ bone_loss: e.target.value })} placeholder="e.g., Moderate horizontal, 3-4mm" />
+        <input list="bone-loss-suggestions" className={inputCls} value={cf.bone_loss} onChange={e => setCf({ bone_loss: e.target.value })} placeholder="e.g., Moderate horizontal, 3-4mm" autoComplete="off" />
         <datalist id="bone-loss-suggestions">
           {BONE_LOSS_SUGGESTIONS.map(d => <option key={d} value={d} />)}
         </datalist>
       </Field>
 
       <Field label="Additional Notes" className="md:col-span-2">
-        <textarea rows={3} className={inputCls} placeholder="e.g., Heavy subgingival calculus, furcation involvement on #3 and #14" value={cf.additional_notes} onChange={e => setCf({ additional_notes: e.target.value })} />
+        <textarea rows={3} className={inputCls} placeholder="e.g., Heavy subgingival calculus, furcation involvement on #3 and #14" value={cf.additional_notes} onChange={e => setCf({ additional_notes: e.target.value })} autoComplete="off" />
       </Field>
 
       <Field label="Date of Last Prophylaxis / Maintenance">
@@ -675,7 +709,10 @@ function SmartPaste({ claim, setClaim }) {
         value={text}
         onChange={e => setText(e.target.value)}
         placeholder="Paste your clinical notes here…"
-        className={inputCls + ' font-mono text-xs'}
+        // text-base (16px) on mobile so iOS doesn't auto-zoom when the user
+        // taps into the textarea; smaller mono on md+ where zoom isn't a thing.
+        className={inputCls + ' font-mono text-base md:text-xs'}
+        autoComplete="off"
       />
       <div className="flex justify-end mt-2">
         <button
@@ -881,6 +918,7 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
             value={claim.generated_narrative || ''}
             onChange={e => setClaim({ ...claim, generated_narrative: e.target.value, narrative_approved: false })}
             placeholder="Write or paste your clinical narrative here, or click Generate Narrative with Claude below."
+            autoComplete="off"
           />
           <div className="flex flex-wrap gap-2">
             <button
