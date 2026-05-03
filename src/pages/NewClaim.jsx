@@ -24,6 +24,7 @@ import CostCalculatorCard from '../components/CostCalculatorCard'
 import ConfirmDialog from '../components/ConfirmDialog'
 import UnsavedChangesDialog from '../components/UnsavedChangesDialog'
 import WatchOutsSection from '../components/WatchOutsSection'
+import TapButton from '../components/TapButton'
 import { emptyCostEstimate, hasCostEstimateData } from '../lib/cost'
 import { useResolvedRequirements } from '../lib/useResolvedRequirements'
 import { useUnsavedChangesGuard } from '../lib/useUnsavedChangesGuard'
@@ -302,25 +303,16 @@ function Step1({ claim, setClaim }) {
           autoCorrect="off"
         />
         <div className="mt-2 border border-gray-200 rounded-md max-h-56 overflow-y-auto divide-y divide-gray-100">
-          {filtered.map(p => {
-            const pickPayer = () => { setClaim({ ...claim, payer_id: p.payer_id }); setSearch(p.name) }
-            return (
-              <button
-                type="button"
-                key={p.payer_id}
-                // onPointerDown fires before mobile keyboard dismissal,
-                // so the tap is captured even when the search input above
-                // is focused. preventDefault stops the input from blurring
-                // first, which on iOS can cancel the synthetic click.
-                onPointerDown={e => { e.preventDefault(); pickPayer() }}
-                onClick={pickPayer}
-                className={`w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center justify-between touch-manipulation ${claim.payer_id === p.payer_id ? 'bg-teal/10' : ''}`}
-              >
-                <span className="text-sm font-medium text-text-strong">{p.name}</span>
-                <span className="text-xs text-text-muted">{p.plan_type}</span>
-              </button>
-            )
-          })}
+          {filtered.map(p => (
+            <TapButton
+              key={p.payer_id}
+              onTap={() => { setClaim({ ...claim, payer_id: p.payer_id }); setSearch(p.name) }}
+              className={`w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center justify-between ${claim.payer_id === p.payer_id ? 'bg-teal/10' : ''}`}
+            >
+              <span className="text-sm font-medium text-text-strong">{p.name}</span>
+              <span className="text-xs text-text-muted">{p.plan_type}</span>
+            </TapButton>
+          ))}
           {filtered.length === 0 && <div className="px-3 py-3 text-sm text-text-muted">No payers match.</div>}
         </div>
       </Field>
@@ -438,26 +430,17 @@ function ProcedureRow({ idx, proc, cdtCodes, getFeeForCode, onUpdate, onRemove }
             <div className="mt-2 border border-gray-200 rounded-md max-h-56 overflow-y-auto divide-y divide-gray-100">
               {matches.map(c => {
                 const fee = getFeeForCode?.(c.code)
-                const pick = () => pickCode(c.code)
                 return (
-                  <button
-                    type="button"
+                  <TapButton
                     key={c.code}
-                    // onPointerDown fires before mobile keyboard dismissal,
-                    // so the tap is captured even when the CDT search input
-                    // above is focused. preventDefault stops the input from
-                    // blurring first, which on iOS can cancel the synthetic
-                    // click and lose the pickCode call entirely (the symptom
-                    // was "fee shows but procedure not actually picked").
-                    onPointerDown={e => { e.preventDefault(); pick() }}
-                    onClick={pick}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-50 touch-manipulation"
+                    onTap={() => pickCode(c.code)}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-50"
                   >
                     <div className="text-sm flex items-center justify-between gap-3">
                       <span><span className="font-mono font-medium text-text-strong">{c.code}</span> — {c.description}</span>
                       {fee != null && <span className="text-xs text-teal font-medium shrink-0">${fee.toFixed(2)}</span>}
                     </div>
-                  </button>
+                  </TapButton>
                 )
               })}
               {matches.length === 0 && <div className="px-3 py-3 text-sm text-text-muted">No codes match.</div>}
@@ -595,6 +578,11 @@ function Step3({ claim, setClaim, validationAttempted }) {
                 autoComplete="off"
                 autoCorrect="off"
                 autoCapitalize="off"
+                // inputMode="text" + pattern so iOS shows the full keyboard
+                // (which has the dash key for ranges like "5-8"). iOS's
+                // "numeric" inputMode is a digits-only pad with no dash.
+                inputMode="text"
+                pattern="[0-9-]*"
               />
             </label>
           ))}

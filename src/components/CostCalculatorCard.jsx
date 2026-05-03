@@ -64,7 +64,7 @@ export default function CostCalculatorCard({
           <BannerNumber
             label="Patient Pays"
             value={filled ? `$${estimate.patientOOP.toFixed(2)}` : '—'}
-            tone={filled ? 'navy' : 'muted'}
+            tone={filled ? 'patient' : 'muted'}
           />
         </div>
 
@@ -97,7 +97,8 @@ export default function CostCalculatorCard({
 function BannerNumber({ label, value, tone = 'navy' }) {
   const tones = {
     navy: 'text-text-strong',
-    success: 'text-success',
+    success: 'text-success',  // sage green — Insurance Pays
+    patient: 'text-danger',   // terracotta red — Patient Pays
     muted: 'text-text-muted',
   }
   return (
