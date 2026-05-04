@@ -1,6 +1,7 @@
-import { useMemo } from 'react'
+import { useId, useMemo } from 'react'
 import { AlertTriangle, Info, Printer, Calculator } from 'lucide-react'
 import { computeCostEstimate, emptyCostEstimate } from '../lib/cost'
+import { enterToNextField } from '../lib/formHelpers'
 
 // These number inputs hold 2-5 digit values (deductibles, percentages,
 // dollar caps). Keeping them at a reasonable width — full-width looked
@@ -27,6 +28,7 @@ const inputWrapperCls = 'relative w-full max-w-[300px]'
  */
 export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], value, onChange, onPrint, readOnly = false }) {
   const inputs = value || emptyCostEstimate()
+  const id = useId()
   const estimate = useMemo(() => computeCostEstimate(procedures, inputs), [procedures, inputs])
 
   const update = (patch) => {
@@ -79,11 +81,14 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
                                 type="number" min="0" step="0.01"
                                 value={ucrVal}
                                 onChange={e => updateUcr(p.cdt_code, e.target.value)}
+                                onKeyDown={enterToNextField}
                                 disabled={readOnly}
                                 placeholder={(Number(p.fee) || 0).toString()}
                                 className="w-full pl-5 pr-2 py-2 border border-border-warm rounded text-base text-right focus:outline-none focus:ring-2 focus:ring-teal/40 focus:border-teal"
                                 autoComplete="off"
+                                spellCheck="false"
                                 inputMode="decimal"
+                                name={`${id}-ucr-${p.cdt_code || 'x'}`}
                               />
                             </div>
                           </td>
@@ -106,11 +111,14 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
                 type="number" min="0" step="1"
                 value={inputs.remaining_deductible ?? ''}
                 onChange={e => update({ remaining_deductible: e.target.value })}
+                onKeyDown={enterToNextField}
                 disabled={readOnly}
                 placeholder="0"
                 className={inputCls + ' pl-7'}
                 autoComplete="off"
+                spellCheck="false"
                 inputMode="decimal"
+                name={`${id}-deductible`}
               />
             </div>
           </Field>
@@ -131,11 +139,14 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
                 type="number" min="0" max="100" step="1"
                 value={inputs.oon_reimbursement_pct ?? ''}
                 onChange={e => update({ oon_reimbursement_pct: e.target.value })}
+                onKeyDown={enterToNextField}
                 disabled={readOnly}
                 placeholder="Enter percentage, e.g. 50"
                 className={inputCls + ' pr-14'}
                 autoComplete="off"
+                spellCheck="false"
                 inputMode="numeric"
+                name={`${id}-oon-pct`}
               />
               <span className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center px-3 py-1.5 rounded-md bg-teal/15 text-teal font-bold text-base leading-none pointer-events-none">%</span>
             </div>
@@ -149,11 +160,14 @@ export default function CostEstimatorPanel({ procedures = [], cdtCodes = [], val
                 type="number" min="0" step="1"
                 value={inputs.remaining_annual_max ?? ''}
                 onChange={e => update({ remaining_annual_max: e.target.value })}
+                onKeyDown={enterToNextField}
                 disabled={readOnly}
                 placeholder="e.g., 2000"
                 className={inputCls + ' pl-7'}
                 autoComplete="off"
+                spellCheck="false"
                 inputMode="decimal"
+                name={`${id}-annual-max`}
               />
             </div>
           </Field>
