@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Plus, Trash2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, AlertTriangle, Check, X, Loader2, Sparkles, RefreshCw } from 'lucide-react'
 import { useData } from '../lib/DataContext'
@@ -25,6 +25,8 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import UnsavedChangesDialog from '../components/UnsavedChangesDialog'
 import WatchOutsSection from '../components/WatchOutsSection'
 import TapButton from '../components/TapButton'
+import AutocompleteInput from '../components/AutocompleteInput'
+import { enterToNextField } from '../lib/formHelpers'
 import { emptyCostEstimate, hasCostEstimateData } from '../lib/cost'
 import { useResolvedRequirements } from '../lib/useResolvedRequirements'
 import { useUnsavedChangesGuard } from '../lib/useUnsavedChangesGuard'
@@ -268,6 +270,7 @@ function Stepper({ current, onJump }) {
 function Step1({ claim, setClaim }) {
   const { payers } = useData()
   const [search, setSearch] = useState('')
+  const id = useId()
   const filtered = useMemo(() => {
     if (!search.trim()) return payers
     const q = search.toLowerCase()
@@ -282,8 +285,10 @@ function Step1({ claim, setClaim }) {
           placeholder="Patient ID, initials, or any reference"
           value={claim.patient_name}
           onChange={e => setClaim({ ...claim, patient_name: e.target.value })}
+          onKeyDown={enterToNextField}
           autoComplete="off"
           autoCorrect="off"
+          name={`${id}-patient`}
         />
       </Field>
       <Field label="Date of Service">
@@ -301,6 +306,8 @@ function Step1({ claim, setClaim }) {
           onChange={e => setSearch(e.target.value)}
           autoComplete="off"
           autoCorrect="off"
+          spellCheck="false"
+          name={`${id}-payer-search`}
         />
         <div className="mt-2 border border-gray-200 rounded-md max-h-56 overflow-y-auto divide-y divide-gray-100">
           {filtered.map(p => (
@@ -326,16 +333,31 @@ function Step2({ claim, setClaim, totalFee }) {
   const { cdtCodes, getFeeForCode } = useData()
   const warnings = useMemo(() => checkBundlingConflicts(claim.procedures), [claim.procedures])
 
-  // Functional updaters — two rapid mobile taps (pointerdown + click on the
-  // same target) can't clobber each other with stale closure state. This was
-  // the root cause of the "second procedure only saves the fee" bug on iOS:
-  // the second update call read a stale `claim.procedures` and overwrote the
-  // first update's cdt_code with the original empty string while preserving
-  // the fee from the second patch.
+  // All updates use functional setClaim so two rapid pointer taps can't
+  // race against stale closure state. pickProcCode lives at this level
+  // (instead of inside ProcedureRow) so it reads the LATEST procedures
+  // array via the functional updater — closing over the previous
+  // procedure's `proc.fee` was a closure-staleness vector for the
+  // "second procedure only saves the fee" bug.
   const updateProc = (idx, patch) => {
     setClaim(prev => {
       const next = [...prev.procedures]
       next[idx] = { ...next[idx], ...patch }
+      return { ...prev, procedures: next }
+    })
+  }
+  const pickProcCode = (idx, code) => {
+    setClaim(prev => {
+      const next = [...prev.procedures]
+      const existing = next[idx] || { cdt_code: '', quadrants: [], tooth_numbers: '', fee: '' }
+      const defaultFee = getFeeForCode?.(code)
+      next[idx] = {
+        ...existing,
+        cdt_code: code,
+        fee: defaultFee != null ? String(defaultFee) : (existing.fee || ''),
+      }
+      // eslint-disable-next-line no-console
+      console.log('[pickProcCode]', { idx, code, after: next[idx], allProcedures: next })
       return { ...prev, procedures: next }
     })
   }
@@ -355,6 +377,7 @@ function Step2({ claim, setClaim, totalFee }) {
           proc={proc}
           cdtCodes={cdtCodes}
           getFeeForCode={getFeeForCode}
+          onPickCode={(code) => pickProcCode(i, code)}
           onUpdate={(patch) => updateProc(i, patch)}
           onRemove={claim.procedures.length > 1 ? () => removeProc(i) : null}
         />
@@ -383,8 +406,9 @@ function Step2({ claim, setClaim, totalFee }) {
   )
 }
 
-function ProcedureRow({ idx, proc, cdtCodes, getFeeForCode, onUpdate, onRemove }) {
+function ProcedureRow({ idx, proc, cdtCodes, getFeeForCode, onPickCode, onUpdate, onRemove }) {
   const [search, setSearch] = useState('')
+  const id = useId()
   const cdt = cdtCodes.find(c => c.code === proc.cdt_code)
   const matches = useMemo(() => {
     if (!search.trim()) return cdtCodes.slice(0, 8)
@@ -392,15 +416,9 @@ function ProcedureRow({ idx, proc, cdtCodes, getFeeForCode, onUpdate, onRemove }
     return cdtCodes.filter(c => c.code.toLowerCase().includes(q) || c.description.toLowerCase().includes(q)).slice(0, 8)
   }, [cdtCodes, search])
 
-  const pickCode = (code) => {
-    // Autofill the fee from the saved Settings → Fee Schedule when available;
-    // user can still edit the fee inline for this claim.
-    const defaultFee = getFeeForCode?.(code)
-    onUpdate({
-      cdt_code: code,
-      fee: defaultFee != null ? String(defaultFee) : (proc.fee || ''),
-    })
-  }
+  // pickCode is owned by the parent (Step2) so the update is atomic against
+  // the latest procedures array — no closure-staleness on `proc.fee`.
+  const pickCode = (code) => onPickCode(code)
   const defaultFeeForCode = cdt ? getFeeForCode?.(cdt.code) : null
   const usingDefaultFee = defaultFeeForCode != null && Number(proc.fee) === defaultFeeForCode
 
@@ -426,7 +444,7 @@ function ProcedureRow({ idx, proc, cdtCodes, getFeeForCode, onUpdate, onRemove }
           </div>
         ) : (
           <>
-            <input className={inputCls} placeholder="Search by code or description (e.g., D4341 or scaling)…" value={search} onChange={e => setSearch(e.target.value)} autoComplete="off" autoCorrect="off" autoCapitalize="off" />
+            <input className={inputCls} placeholder="Search by code or description (e.g., D4341 or scaling)…" value={search} onChange={e => setSearch(e.target.value)} autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" name={`${id}-cdt-search`} />
             <div className="mt-2 border border-gray-200 rounded-md max-h-56 overflow-y-auto divide-y divide-gray-100">
               {matches.map(c => {
                 const fee = getFeeForCode?.(c.code)
@@ -471,7 +489,7 @@ function ProcedureRow({ idx, proc, cdtCodes, getFeeForCode, onUpdate, onRemove }
 
       {cdt?.requires_tooth_numbers && (
         <Field label="Tooth Numbers">
-          <input className={inputCls} placeholder="Comma-separated, e.g., 3, 14, 19" value={proc.tooth_numbers || ''} onChange={e => onUpdate({ tooth_numbers: e.target.value })} autoComplete="off" autoCorrect="off" inputMode="numeric" />
+          <input className={inputCls} placeholder="Comma-separated, e.g., 3, 14, 19" value={proc.tooth_numbers || ''} onChange={e => onUpdate({ tooth_numbers: e.target.value })} onKeyDown={enterToNextField} autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck="false" inputMode="numeric" name={`${id}-tooth`} />
         </Field>
       )}
 
@@ -486,8 +504,10 @@ function ProcedureRow({ idx, proc, cdtCodes, getFeeForCode, onUpdate, onRemove }
             placeholder={cdt && defaultFeeForCode == null ? 'No default — set one in Settings → Fee Schedule' : 'e.g., 350'}
             value={proc.fee}
             onChange={e => onUpdate({ fee: e.target.value })}
+            onKeyDown={enterToNextField}
             autoComplete="off"
             inputMode="decimal"
+            name={`${id}-fee`}
           />
         </div>
         {cdt && (
@@ -514,6 +534,7 @@ function ProcedureRow({ idx, proc, cdtCodes, getFeeForCode, onUpdate, onRemove }
 function Step3({ claim, setClaim, validationAttempted }) {
   const cf = claim.clinical_findings
   const setCf = (patch) => setClaim({ ...claim, clinical_findings: { ...cf, ...patch } })
+  const id = useId()
 
   // Live errors map. Only surface visually after the user has tried to advance.
   const errors = clinicalFindingsErrors(cf)
@@ -542,17 +563,14 @@ function Step3({ claim, setClaim, validationAttempted }) {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <Field label={<>Diagnosis <Required /></>} className="md:col-span-2">
-        <input
-          list="diagnosis-suggestions"
-          className={`${inputCls} ${errCls('diagnosis')}`}
+        <AutocompleteInput
           value={cf.diagnosis}
-          onChange={e => setCf({ diagnosis: e.target.value })}
+          onChange={v => setCf({ diagnosis: v })}
+          suggestions={DIAGNOSIS_SUGGESTIONS}
           placeholder="e.g., Generalized Stage III, Grade B periodontitis"
-          autoComplete="off"
+          inputClassName={`${inputCls} ${errCls('diagnosis')}`}
+          onKeyDown={enterToNextField}
         />
-        <datalist id="diagnosis-suggestions">
-          {DIAGNOSIS_SUGGESTIONS.map(d => <option key={d} value={d} />)}
-        </datalist>
         {showErrors && errors.diagnosis && <FieldError>{errors.diagnosis}</FieldError>}
       </Field>
 
@@ -575,14 +593,14 @@ function Step3({ claim, setClaim, validationAttempted }) {
                     setCf({ probing_depths: { ...cf.probing_depths, [q.clinicalKey]: normalized } })
                   }
                 }}
+                onKeyDown={enterToNextField}
                 autoComplete="off"
                 autoCorrect="off"
                 autoCapitalize="off"
-                // inputMode="text" + pattern so iOS shows the full keyboard
-                // (which has the dash key for ranges like "5-8"). iOS's
-                // "numeric" inputMode is a digits-only pad with no dash.
+                spellCheck="false"
                 inputMode="text"
                 pattern="[0-9-]*"
+                name={`${id}-probing-${q.clinicalKey}`}
               />
             </label>
           ))}
@@ -598,8 +616,11 @@ function Step3({ claim, setClaim, validationAttempted }) {
             placeholder="e.g., 82"
             value={cf.bop_percentage}
             onChange={e => setCf({ bop_percentage: e.target.value })}
+            onKeyDown={enterToNextField}
             autoComplete="off"
+            spellCheck="false"
             inputMode="numeric"
+            name={`${id}-bop`}
           />
           <span className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center px-2.5 py-1 rounded-md bg-teal/15 text-teal font-semibold text-base leading-none pointer-events-none">%</span>
         </div>
@@ -607,14 +628,18 @@ function Step3({ claim, setClaim, validationAttempted }) {
       </Field>
 
       <Field label="Bone Loss">
-        <input list="bone-loss-suggestions" className={inputCls} value={cf.bone_loss} onChange={e => setCf({ bone_loss: e.target.value })} placeholder="e.g., Moderate horizontal, 3-4mm" autoComplete="off" />
-        <datalist id="bone-loss-suggestions">
-          {BONE_LOSS_SUGGESTIONS.map(d => <option key={d} value={d} />)}
-        </datalist>
+        <AutocompleteInput
+          value={cf.bone_loss}
+          onChange={v => setCf({ bone_loss: v })}
+          suggestions={BONE_LOSS_SUGGESTIONS}
+          placeholder="e.g., Moderate horizontal, 3-4mm"
+          inputClassName={inputCls}
+          onKeyDown={enterToNextField}
+        />
       </Field>
 
       <Field label="Additional Notes" className="md:col-span-2">
-        <textarea rows={3} className={inputCls} placeholder="e.g., Heavy subgingival calculus, furcation involvement on #3 and #14" value={cf.additional_notes} onChange={e => setCf({ additional_notes: e.target.value })} autoComplete="off" />
+        <textarea rows={3} className={inputCls} placeholder="e.g., Heavy subgingival calculus, furcation involvement on #3 and #14" value={cf.additional_notes} onChange={e => setCf({ additional_notes: e.target.value })} autoComplete="off" name={`${id}-notes`} />
       </Field>
 
       <Field label="Date of Last Prophylaxis / Maintenance">
@@ -641,6 +666,7 @@ function SmartPaste({ claim, setClaim }) {
   const { show } = useToast()
   const [text, setText] = useState('')
   const [parsing, setParsing] = useState(false)
+  const id = useId()
 
   const onParse = async () => {
     if (!text.trim()) return
@@ -701,6 +727,10 @@ function SmartPaste({ claim, setClaim }) {
         // taps into the textarea; smaller mono on md+ where zoom isn't a thing.
         className={inputCls + ' font-mono text-base md:text-xs'}
         autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck="false"
+        name={`${id}-paste`}
       />
       <div className="flex justify-end mt-2">
         <button
@@ -907,6 +937,7 @@ function Step4({ claim, setClaim, totalFee, onSaveDraft, onMarkReady }) {
             onChange={e => setClaim({ ...claim, generated_narrative: e.target.value, narrative_approved: false })}
             placeholder="Write or paste your clinical narrative here, or click Generate Narrative with Claude below."
             autoComplete="off"
+            name="narrative-input"
           />
           <div className="flex flex-wrap gap-2">
             <button

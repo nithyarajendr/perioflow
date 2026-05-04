@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { ArrowLeft, Pencil, Trash2, Send, FileDown, ClipboardCheck, AlertTriangle, Check, RefreshCw, Sparkles, Loader2 } from 'lucide-react'
 import { useData } from '../lib/DataContext'
@@ -29,6 +29,7 @@ import { generateNarrative } from '../lib/api'
 import { useResolvedRequirements } from '../lib/useResolvedRequirements'
 import { useUnsavedChangesGuard } from '../lib/useUnsavedChangesGuard'
 import { emptyCostEstimate } from '../lib/cost'
+import { enterToNextField } from '../lib/formHelpers'
 
 export default function ClaimDetail() {
   const { id } = useParams()
@@ -604,21 +605,20 @@ export default function ClaimDetail() {
 
 function FloatingSaveBar({ onSave, onDiscard }) {
   return (
-    // Compact on mobile (smaller text + tighter padding) so the bar is a
-    // thin strip, not a bulky block; original desktop sizing preserved
-    // via sm: variants.
-    <div className="fixed bottom-3 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 bg-navy text-cream-light shadow-2xl rounded-full px-3 py-2 sm:px-5 sm:py-3 flex items-center gap-2 sm:gap-3 max-w-[calc(100vw-1rem)]">
-      <span className="text-xs sm:text-sm whitespace-nowrap">Unsaved changes</span>
-      <div className="flex gap-1.5 sm:gap-2">
+    // Single thin row on mobile (text-xs label, compact buttons); original
+    // desktop sizing preserved via sm: variants.
+    <div className="fixed bottom-2 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 bg-navy text-cream-light shadow-2xl rounded-full px-2.5 py-1 sm:px-5 sm:py-3 flex items-center gap-2 sm:gap-3 max-w-[calc(100vw-0.5rem)]">
+      <span className="text-[11px] sm:text-sm whitespace-nowrap pl-1">Unsaved changes</span>
+      <div className="flex gap-1 sm:gap-2">
         <button
           onClick={onDiscard}
-          className="px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs sm:text-sm border border-cream-light/30 rounded-full text-cream-light/90 hover:bg-cream-light/10"
+          className="px-2 py-0.5 sm:px-3 sm:py-1.5 text-xs sm:text-sm border border-cream-light/30 rounded-full text-cream-light/90 hover:bg-cream-light/10"
         >
           Discard
         </button>
         <button
           onClick={onSave}
-          className="px-3 py-1 sm:px-4 sm:py-1.5 text-xs sm:text-sm bg-teal text-white font-medium rounded-full hover:opacity-90"
+          className="px-2.5 py-0.5 sm:px-4 sm:py-1.5 text-xs sm:text-sm bg-teal text-white font-medium rounded-full hover:opacity-90"
         >
           Save
         </button>
@@ -891,12 +891,20 @@ const inlineDateCls = inlineFieldCls + ' max-w-[180px]'
 
 function EditableItem({ label, value, onSave, type = 'text', placeholder, suffix, multiline, full, inputMode, pattern }) {
   const [draft, setDraft] = useState(value ?? '')
+  const fieldId = useId()
   // Re-sync local draft if the upstream value changes (e.g. saved from another control).
   useEffect(() => { setDraft(value ?? '') }, [value])
 
   const onBlur = () => {
     const next = draft
     if ((value ?? '') !== next) onSave(next)
+  }
+  // Save on Enter then advance focus (skip if multiline — Enter inserts a newline there).
+  const onKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !multiline) {
+      onBlur()
+      enterToNextField(e)
+    }
   }
 
   return (
@@ -912,6 +920,7 @@ function EditableItem({ label, value, onSave, type = 'text', placeholder, suffix
             placeholder={placeholder}
             className={inlineFieldCls + ' resize-y'}
             autoComplete="off"
+            name={`ed-${fieldId}`}
           />
         ) : (
           <input
@@ -919,13 +928,16 @@ function EditableItem({ label, value, onSave, type = 'text', placeholder, suffix
             value={draft}
             onChange={e => setDraft(e.target.value)}
             onBlur={onBlur}
+            onKeyDown={onKeyDown}
             placeholder={placeholder}
             className={inlineFieldCls + (suffix ? ' pr-12' : '')}
             autoComplete="off"
             autoCorrect={type === 'number' || inputMode ? 'off' : undefined}
             autoCapitalize={inputMode ? 'off' : undefined}
+            spellCheck={inputMode ? 'false' : undefined}
             inputMode={inputMode || (type === 'number' ? 'decimal' : undefined)}
             pattern={pattern}
+            name={`ed-${fieldId}`}
           />
         )}
         {suffix && !multiline && (
